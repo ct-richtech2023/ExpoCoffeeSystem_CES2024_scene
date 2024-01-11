@@ -1,0 +1,66 @@
+# 在当前路径执行 docker-compose up -d
+version: "3.8"
+services:
+  docs:
+    image: m986883511/sphinx:autobuild
+    container_name: docs_ces
+    restart: unless-stopped
+    privileged: true
+    command: [ 'sphinx-autobuild', '/docs/source' ,'/docs/build', '--host', '0.0.0.0' ]
+    volumes:
+      - "./docs:/docs"
+    ports:
+      - "9090:8000"
+    build:
+      context: .
+      dockerfile: docker/sphinx.Dockerfile
+  adam:
+    depends_on:
+      - tts
+      - db
+    restart: unless-stopped
+    image: m986883511/adam:env
+    command: [ 'supervisord' ]
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+      - "9002:9002"
+      - "9003:9003"
+      - "9004:9004"
+    volumes:
+      - ".:/richtech"
+      - "./docker/supervisord.conf:/etc/supervisord.conf"
+      - "./share/log:/var/log/richtech"
+      - '/dev:/dev'
+#    devices:
+#      - /dev
+    privileged: true
+    dns: 114.114.114.114
+    container_name: adam_ces
+    build:
+      context: .
+      dockerfile: docker/adam.Dockerfile
+  db:
+    restart: unless-stopped
+    image: postgres:alpine
+    container_name: db_ces
+    volumes:
+      - "./share/db:/var/lib/postgresql/data"
+    environment:
+      - POSTGRES_PASSWORD=richtech
+    ports:
+      - "5432:5432"
+  adminer:
+    image: adminer:standalone
+    restart: unless-stopped
+    container_name: adminer_ces
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "8080:8080"
+  tts:
+    image: synesthesiam/mozillatts:en
+    restart: unless-stopped
+    container_name: tts_ces
+    ports:
+      - "5002:5002"

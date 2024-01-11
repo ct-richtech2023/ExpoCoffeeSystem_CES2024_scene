@@ -1,0 +1,30 @@
+drink:
+  - name: Shaken
+    pose:
+      x: 0
+      y: -1200
+      z: 200
+put:
+  x: 700
+  y: -700
+  z: 101
+  roll: 0
+
+robot:
+  enable: false
+  uuid: Do_cvGVtiVc4YRVI3qB3kg
+  account:
+    username: Wangc
+    password: richtech321
+  here: table6
+  timeout: 60
+  point:
+    - number: 0
+      name: table1
+    - number: 1
+      name: table4
+
+picovoice:
+  udp_port: 20022
+  audio_device_index: 1
+  access_key: "4aCdBm26Vi2mgB1c6eHcMiA3Q3hdEPo+ha6OQW0VXQ2eV1Lo0cQS+g=="

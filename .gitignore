@@ -1,0 +1,8 @@
+/docs/build/
+resource/audio/sound.wav
+resource/audio/gtts_out.mp3
+/share/
+/.idea
+/record
+Pipfile
+*.pyc

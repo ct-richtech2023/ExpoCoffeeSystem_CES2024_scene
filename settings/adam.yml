@@ -1,0 +1,94 @@
+save_conf: True # 初始化adam配置的时候是否执行save_conf函数
+
+different_config: # 两臂不同的配置
+  left:
+    gripper: default # 这个臂的夹爪默认使用哪个tcp设置
+    mount_direction: # 左臂重力方向
+      base_tilt_deg: 90
+      rotation_deg: 150
+    world_offset: # 左臂世界坐标系偏移
+      x: 0
+      y: 130
+      z: 595
+      roll: -90
+      pitch: -120
+      yaw: 0
+  right:
+    gripper: default
+    mount_direction:
+      base_tilt_deg: 90
+      rotation_deg: -150
+    world_offset:
+      x: 0
+      y: -130
+      z: 595
+      roll: 90
+      pitch: -120
+      yaw: 0
+
+gripper_config: # 夹爪的配置
+  default: # 默认夹爪的配置
+    tcp_offset: # 工具坐标系偏移
+      x: 0
+      y: 0
+      z: 210
+      roll: 0
+      pitch: 0
+      yaw: 0
+    tcp_load: # 工具坐标系负载
+      weight: 1.27 # 工具的重力，单位kg
+      center_of_gravity: # 工具的重心位置
+        x: 0
+        y: 0
+        z: 48
+  pour_ice: # 拿调酒壶倒冰块时候的tcp设置
+    tcp_offset:
+      x: -100
+      y: 57
+      z: 205
+      roll: 0
+      pitch: 0
+      yaw: 0
+    tcp_load:
+      weight: 1.6
+      center_of_gravity:
+        x: 0
+        y: 0
+        z: 48
+  pour_wine: # 拿调酒壶倒酒时候的tcp设置
+    tcp_offset:
+      x: -90
+      y: -45
+      z: 205
+      roll: 0
+      pitch: 0
+      yaw: 0
+    tcp_load:
+      weight: 1.6
+      center_of_gravity:
+        x: 0
+        y: 0
+        z: 48
+  pour_ingredient: # 倒波霸时候的tcp设置
+    tcp_offset: # 短勺tcp偏移
+      x: 200 # 勺柄高出勺子部分到夹爪位置高度
+      y: -65 # 勺子口相对勺柄位置
+      z: 60 # 夹爪根部到夹爪中心距离
+      roll: 0
+      pitch: 0
+      yaw: 0
+    tcp_load:
+      weight: 1.6
+      center_of_gravity:
+        x: 0
+        y: 0
+        z: 48
+
+same_config: # 两臂不同的配置
+  teach_sensitivity: 4 # 示教灵敏度
+  collision_sensitivity: 2 # 碰赚检测灵敏度
+  safe_level: 4 # 安全等级
+  tcp_jerk: 7105 # tcp加加速度 7005
+  tcp_maxacc: 10105 # tcp加速度 10005
+  joint_jerk: 12105 # 关节加加速度 12005
+  joint_maxacc: 1115 # 关节加速度 1115

@@ -1,0 +1,109 @@
+cup_env: 如果是indoor代表室内场景，杯子用玻璃杯;如果是outdoor代表室外场景，杯子用塑料杯。
+
+adam: adam相关配置
+  ip: ip配置
+    left: 192.168.0.202
+    right: 192.168.0.201
+  default_speed: 默认速度
+    arm: 机械臂两个手臂笛卡尔空间默认运行速度
+    gripper: 机械臂两个夹爪开闭的默认速度，默认为15000最大值
+  gpio: gpio配置
+    which: gpio使用哪边的手臂的驱动器，只能填left或者right
+    delay: gpio开的默认时间，比如糖这个泵值为3，那么对应gpio开启时间为3*delay秒，gpio和泵的对应关系查看9090端口中的gpio说明
+  gripper: 夹爪配置
+    open: 机械臂两个夹爪张开时的默认值，默认为850最大值
+
+dance:
+  count: 3 新的跳舞程序，执行一次跳舞接口会执行的轮数
+
+put: 放杯子位置配置
+  device: 0 没用到
+  speed: 0.5 实际运动真实值为adam.default_speed.arm*当前值
+  pose: 放杯子的位置
+    x: 700
+    y: -240
+    z: 0
+
+middle:
+  speed: 0.5  运动到中转点的速度比例，实际运动真实值为adam.default_speed.arm*当前值
+  pose: 中转点的xyz位置
+    x: 390
+    y: 0
+    z: 80
+
+ice_maker: 制冰机的配置
+  delay: 0.5 夹爪到出冰口会等待多久
+  speed: 0.5 最大速度×当前值
+  pose: 制冰机的位置
+    x: 500
+    y: 950
+    z: 230
+    roll: 0 强制要求是roll角为0度去制冰机取冰
+
+shaker: 调酒壶的配置
+  gripper: 200 抓取调酒壶时候的夹爪行程
+  high: 210 调酒壶的高度
+  clamp: 0 没用到
+  capacity: 230 调酒壶最大装酒容量
+  collision_sensitivity: 2 没用到
+  pose:
+    take: 从哪里拿调酒壶
+      x: 750
+      y: 240
+      z: 120
+    clean: 清洗调酒壶的位置
+      x: 400
+      y: 450
+      z: 150
+
+gpio: gpio的配置
+  gas: 汽水相关的配置
+    start: 汽水水龙头的起始位置
+      x: 650
+      y: 200
+      z: 275
+    spacing: -80 汽水水龙头之间的间隔
+    difference: 135 汽水出水口和扳手的距离
+    outlet: 水龙头的配置
+      - name: Cola 这个水龙头的名字
+        speed: 50 每秒流水的毫升
+        capacity: 100 一杯可乐需要多少毫升
+        one_bottom: 5000 总共需要有多少毫升
+  no_gas: 非汽水的配置
+    start: 非汽水的蠕动泵出水口的位置
+      x: 590
+      y: 405
+      z: 150
+    outlet: 出水口配置
+      ingredient_wine: 下面的是基酒的列表
+        - name: orange liqueur 基酒名字
+          gpio: left,0 这个基酒使用adam左臂的第0个io
+          speed: 10 蠕动泵出水速度
+          one_bottom: 500 一瓶酒总共的毫升数
+
+get: 取杯子的配置
+  - name: default 这个杯子的名字
+    gripper: 400 夹爪张开多少行程能正好夹住这个这个杯子
+    high: 115 杯子的高度
+    clamp: 0 夹爪反转时捏杯子的夹爪行程
+    capacity: 230 杯子的容量
+    percent: 0.83 真实使用这个杯子时，夹爪夹住了这个杯子的位置，百分比
+    weight: 0.5 杯子重量
+    collision_sensitivity: 0 取杯子时候的碰撞设置，只有落被器用到这个值
+    pose: 杯子的位置
+      x: -85
+      y: -1000
+      z: 115
+  - name: thick_bottom_cup 这个杯子是厚底杯
+    gripper: 0 夹爪张开多少行程能正好夹住这个这个杯子
+    high: 86.5 杯子的高度
+    clamp: 0 没用到
+    capacity: 230 杯子的容量
+    weight: 0.5 杯子重量
+    percent: 0.5 真实使用这个杯子时，夹爪夹住了这个杯子的位置，百分比
+    collision_sensitivity: 2 这个杯子没用到
+    pose: 杯子的位置
+      x: -450
+      y: -850
+      z: 43.3
+      roll: 90
