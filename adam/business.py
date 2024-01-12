@@ -838,6 +838,7 @@ class Adam:
         time.sleep(2)
         self.goto_temp_point(which, x=500, y=10.5, z=400, wait=False, speed=pose_speed)
         self.goto_angles(which, adam_schema.Angles.list_to_obj([-159.6, 72, -116.9, 49.6, 29.6, -173.9]), wait=True, speed=angle_speed)
+        self.check_adam_angles(which, [-159.6, 72, -116.9, 49.6, 29.6, -173.9], "goto clean espresso_cup")
         check_thread = CheckThread(self.env.one_arm(which), self.stop)
         try:
             check_thread.start()
@@ -1021,6 +1022,7 @@ class Adam:
         angle_speed = 80  # 80
         which = Arm.right
         self.goto_point(which, adam_schema.Pose.list_to_obj([632.6, 3.2, 158.0, -75.4, -86.9, -53.8]), wait=True, speed=pose_speed)
+        self.check_adam_pos(which, [632.6, 3.2, 158.0, -75.4, -86.9, -53.8], "goto clean foamer")
         check_thread = CheckThread(self.env.one_arm(which), self.stop)
         try:
             check_thread.start()
@@ -2446,6 +2448,16 @@ class Adam:
         logger.info('{} arm check_adam_pos {}, pos={}, actual={}, passed={}'.format(which, desc, pos, real_pos, passed))
         if not passed:
             raise MoveError('move error in {} position compare not passed'.format(desc))
+        else:
+            return True
+
+    def check_adam_angles(self, which, angles_list, desc):
+        arm = self.env.one_arm(which)
+        real_angles = arm.angles
+        passed = utils.compare_value(real_angles[:6], angles_list[:6], 1)
+        logger.info('{} arm check_adam_angles {}, angles={}, actual={}, passed={}'.format(which, desc, angles_list, real_angles, passed))
+        if not passed:
+            raise MoveError('move error in {} angles compare not passed'.format(desc))
         else:
             return True
 
