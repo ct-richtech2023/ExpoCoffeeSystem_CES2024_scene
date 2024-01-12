@@ -137,7 +137,7 @@ class Coffee_Driver:
         logger.debug(f"status: {status}, errors: {errors}")
         re_query = False
         re_query_num = 0
-        if status == 0:
+        if status not in self.machine_states_state_dict or 4096 <= status <= 8191 or 8192 <= status <= 12287:
             re_query = True
         while re_query:
             time.sleep(2)
@@ -167,11 +167,11 @@ class Coffee_Driver:
             status_dict["error_code"] = errors[0]
             status_dict["error"] = self.machine_states_error_dict.get(errors[0], "")
         # logger.debug(f"status_dict: {status_dict}")
-        self.last_status["status_code"] = status_dict["status_code"]
-        self.last_status["status"] = status_dict["status"]
+        self.last_status["status_code"] = status_dict.get("status_code", "")
+        self.last_status["status"] = status_dict.get("status", "")
         if status_dict.get("error_code", ""):
-            self.last_status["error_code"] = status_dict["error_code"]
-            self.last_status["error"] = status_dict["error"]
+            self.last_status["error_code"] = status_dict.get("error_code", "")
+            self.last_status["error"] = status_dict.get("error", "")
         else:
             self.last_status["error_code"] = ""
             self.last_status["error"] = ""
@@ -270,7 +270,7 @@ class Coffee_Driver:
                 # 制作过程中有报错信息，立刻抛出异常
                 logger.error(error)
                 if error_code in [15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 29, 30, 75]:
-                    AudioInterface.gtts(f"error is {error},Wait 5 minutes")
+                    # AudioInterface.gtts(f"error is {error},Wait 5 minutes")
                     start_time = time.time()
                     wait_num = 0
                     while True:

@@ -388,7 +388,7 @@ class Adam:
                                             break
                                 break
                         self.coffee_thread.proceed()
-                        self.is_coffee_finished = True
+                        # self.is_coffee_finished = True
                     except CoffeeError as e:
                         if isinstance(e, CoffeeError):
                             AudioInterface.gtts(str(e))
@@ -398,6 +398,7 @@ class Adam:
                         logger.error(str(e))
                         raise e
                     finally:
+                        self.is_coffee_finished = True
                         check_thread.stop()
 
             step1_thread = [threading.Thread(target=goto_coffee_pose, args=(coffee_pose,)),
@@ -450,7 +451,7 @@ class Adam:
                         first_run_flag = False
                         move = True
                     CoffeeInterface.post_use(name, quantity)
-                logger.debug('arduino open_dict = {}'.format(composition))
+                logger.debug('take_ingredients open_dict = {}'.format(composition))
                 check_thread = CheckThread(self.env.one_arm(which), self.stop)
                 try:
                     check_thread.start()
@@ -1641,6 +1642,7 @@ class Adam:
 
         speed = 150
         self.choose_speech("dance_transition")
+        self.goto_gripper_position(Arm.left, 0, wait=False)
         self.left.set_position(**left_init, wait=True, speed=speed, radius=50)
         AudioInterface.music('She.mp3')
         self.left.set_position(**left1, wait=False, speed=200, radius=50)
@@ -1696,6 +1698,7 @@ class Adam:
             self.left.set_position(**left_init, wait=False, speed=speed, radius=50)
             self.left.set_position(**left_Pos3, wait=False, speed=speed, radius=50)
 
+        self.goto_gripper_position(Arm.left, 0, wait=False)
         while True:
             logger.debug(f"self.is_coffee_finished : {self.is_coffee_finished}")
             self.check_adam_status('left_random_action', status=AdamTaskStatus.making)
@@ -2149,7 +2152,7 @@ class Adam:
         right_angles = self.inverse(define.Arm.right, right_position, right_pre_angles)
         return left_angles, right_angles
 
-    def stop_and_goto_zero(self, is_sleep=False):
+    def stop_and_goto_zero(self, is_sleep=False, idle=True):
         """
         Adam软件急停并回工作状态的零点
         """
@@ -2159,14 +2162,22 @@ class Adam:
                                 AdamTaskStatus.dead, AdamTaskStatus.warm, AdamTaskStatus.restart]:
             return {'msg': 'not ok', 'status': self.task_status}
         elif self.task_status == AdamTaskStatus.idle:
+            self.task_status = AdamTaskStatus.making
             self.goto_work_zero(speed=30, open_gripper=False)
+            if idle:
+                self.task_status = AdamTaskStatus.idle
             logger.debug('adam is idle now, return in stop_and_goto_zero')
             return {'msg': 'ok', 'status': self.task_status}
         else:
             logger.debug('adam is dancing now, stop and goto zero')
             self.env.adam.set_state(dict(state=4), dict(state=4))
             self.task_status = AdamTaskStatus.making  # temp
-            VisualDetectInterface.stop_following()
+            # VisualDetectInterface.stop_following()
+            if self.followCountdownTimer.is_running:
+                self.followCountdownTimer.stop(idle=False)
+            if self.countdownTimer.is_running:
+                self.countdownTimer.is_running = False
+                self.dance_thread.pause()
             # 停止播放音乐
             AudioInterface.stop()
             with MySuperContextManager() as db:
@@ -2185,7 +2196,8 @@ class Adam:
             self.goto_work_zero(speed=30)
             logger.warning("adam stop and goto zero finish")
             print(f"self.task_status: {self.task_status}")
-            self.task_status = AdamTaskStatus.idle
+            if idle:
+                self.task_status = AdamTaskStatus.idle
             return {'msg': 'ok', 'status': self.task_status}
 
     def goto_work_zero(self, speed=50, open_gripper=True):
@@ -4882,6 +4894,8 @@ class Adam:
 
         # self.stop_and_goto_zero(is_sleep=True)
         if self.task_status != AdamTaskStatus.idle:
+            self.countdownTimer.is_running = False
+            self.dance_thread.pause()
             return self.task_status
         self.task_status = AdamTaskStatus.dancing
         t = threading.Thread(target=run_dance, args=(choice,))

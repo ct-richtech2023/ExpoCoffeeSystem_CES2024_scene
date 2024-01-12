@@ -46,22 +46,25 @@ music_list = ['Because_of_You_brief.mp3',
 def change_adam_status(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam = Depends(get_adam_obj)):
     try:
         if status == "following":
-            VisualDetectInterface.stop_following()
-            adam.goto_standby_pose()
-            VisualDetectInterface.start_following()
-            music_name = random.choice(music_list)
-            audio = MP3(f'/richtech/resource/audio/musics/{music_name}')
-            duration_in_seconds = audio.info.length
-            logger.error("++++++++++++++++++++++++++++++++++++++++++++++++++")
-            logger.error(f"duration_in_seconds  :{duration_in_seconds}")
-            AudioInterface.music(music_name)
-            adam.followCountdownTimer.edit_initial_time(duration_in_seconds)
-            adam.followCountdownTimer.start()
-            adam.change_adam_status(status)
+            if adam.task_status == AdamTaskStatus.idle:
+                adam.change_adam_status(status)
+                VisualDetectInterface.stop_following()
+                adam.goto_standby_pose()
+                VisualDetectInterface.start_following()
+                music_name = random.choice(music_list)
+                audio = MP3(f'/richtech/resource/audio/musics/{music_name}')
+                duration_in_seconds = audio.info.length
+                logger.error("++++++++++++++++++++++++++++++++++++++++++++++++++")
+                logger.error(f"duration_in_seconds  :{duration_in_seconds}")
+                AudioInterface.music(music_name)
+                adam.followCountdownTimer.edit_initial_time(duration_in_seconds)
+                adam.followCountdownTimer.start()
+                # adam.change_adam_status(status)
             return adam.task_status
         elif status == "idle":
-            adam.followCountdownTimer.stop()
-            adam.change_adam_status(status)
+            if adam.task_status == AdamTaskStatus.following:
+                adam.followCountdownTimer.stop()
+                adam.change_adam_status(status)
             return adam.task_status
     except Exception as e:
         return JSONResponse(status_code=510, content={'error': repr(e)})
@@ -70,7 +73,7 @@ def change_adam_status(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam = Dep
 @router.post("/change_adam_status_idle", summary="")
 def change_adam_status_idle(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam = Depends(get_adam_obj)):
     try:
-        if adam.task_status == "following":
+        if adam.task_status == AdamTaskStatus.following:
             adam.change_adam_status(status)
         return adam.task_status
     except Exception as e:
@@ -79,7 +82,7 @@ def change_adam_status_idle(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam 
 
 @router.post("/right_move", summary='right_move y[-400,0] z[400, 800]')
 def right_move(pos: dict, adam: Adam = Depends(get_adam_obj)):
-    if adam.task_status == "following":
+    if adam.task_status == AdamTaskStatus.following:
         if adam.right.has_error:
             # logger.error(f"right arm error:{error}")
             adam.right.motion_enable()
@@ -103,7 +106,7 @@ def right_move(pos: dict, adam: Adam = Depends(get_adam_obj)):
 
 @router.post("/left_move", summary='left_move y[100,400] z[400, 800]')
 def left_move(pos: dict, adam: Adam = Depends(get_adam_obj)):
-    if adam.task_status == "following":
+    if adam.task_status == AdamTaskStatus.following:
         if adam.left.has_error:
             # logger.error(f"left arm error:{adam.left.}")
             adam.left.motion_enable()
@@ -128,7 +131,7 @@ def left_move(pos: dict, adam: Adam = Depends(get_adam_obj)):
 def random_move(adam: Adam = Depends(get_adam_obj)):
     right_pos_list = [(-150, 500), (-350, 700), (-237, 452), (-263, 526), (-147, 678), (-186, 622), (-355, 543), (-376, 648), (-226, 724), (-250, 600)]
     left_pos_list = [(150, 500), (350, 700), (237, 452), (263, 526), (147, 678), (186, 622), (355, 543), (376, 648), (226, 724), (250, 600)]
-    if adam.task_status == "following":
+    if adam.task_status == AdamTaskStatus.following:
         if adam.left.has_error:
             adam.left.motion_enable()
             adam.left.clean_error()
@@ -156,12 +159,12 @@ def random_move(adam: Adam = Depends(get_adam_obj)):
         left_angles = adam.inverse(define.Arm.left, left_move_pos_list, left_pre_angles[:6])
         adam.left.set_servo_angle(angle=left_angles, speed=55, wait=False, radius=5)
 
-        time.sleep(0.3)
+        # time.sleep(0.3)
 
 
 @router.post("/stop_move", summary='stop_move')
 def stop_move(adam: Adam = Depends(get_adam_obj)):
-    if adam.task_status == "following":
+    if adam.task_status == AdamTaskStatus.following:
         adam.env.adam.set_state(dict(state=4), dict(state=4))
         adam.left.motion_enable()
         adam.left.clean_error()
@@ -237,14 +240,14 @@ def test_coffee_machine(drink_num: int, adam: Adam = Depends(get_adam_obj)):
 @router.post("/random_dance", summary='let adam dance in music')
 def random_dance(choice: int, adam: Adam = Depends(get_adam_obj)):
     logger.info('adam random_dance')
-    adam.dance_random(choice)
-    return 'ok'
+    task_status = adam.dance_random(choice)
+    return task_status
 
 
 @router.post("/zero", summary='adam goto zero position')
-def zero(adam: Adam = Depends(get_adam_obj)):
+def zero(idle: bool = True, adam: Adam = Depends(get_adam_obj)):
     logger.info('goto zero position')
-    return adam.stop_and_goto_zero(is_sleep=True)
+    return adam.stop_and_goto_zero(is_sleep=True, idle=idle)
 
 
 @router.post("/standby_pose")
@@ -756,7 +759,8 @@ def init_dance(db: Session = Depends(get_db)):
 @router.post("/proceed_dance", summary='proceed_dance')
 def proceed_dance(adam: Adam = Depends(get_adam_obj)):
     try:
-        adam.dance_thread.proceed()
+        if adam.task_status == AdamTaskStatus.idle:
+            adam.dance_thread.proceed()
         return 'ok'
     except Exception as e:
         return JSONResponse(status_code=510, content={'error': str(e)})
@@ -766,7 +770,8 @@ def proceed_dance(adam: Adam = Depends(get_adam_obj)):
 def pause_dance(adam: Adam = Depends(get_adam_obj)):
     try:
         try:
-            adam.dance_thread.pause()
+            if adam.task_status == AdamTaskStatus.dancing:
+                adam.dance_thread.pause()
         except Exception as e:
             pass
         return adam.stop_and_goto_zero(is_sleep=True)
@@ -777,9 +782,10 @@ def pause_dance(adam: Adam = Depends(get_adam_obj)):
 @router.post("/CountdownTime", summary='pause_dance')
 def CountdownTime(time: int, adam: Adam = Depends(get_adam_obj)):
     try:
-        adam.timing = time * 60
-        adam.countdownTimer.edit_initial_time(adam.timing)
-        adam.countdownTimer.start()
+        if adam.task_status == AdamTaskStatus.idle:
+            adam.timing = time * 60
+            adam.countdownTimer.edit_initial_time(adam.timing)
+            adam.countdownTimer.start()
         return 'ok'
     except Exception as e:
         logger.error(traceback.formate_exc())
@@ -799,7 +805,8 @@ def set_dance_time(time: int, adam: Adam = Depends(get_adam_obj)):
 @router.post("/stop_CountdownTime", summary='stop_CountdownTime')
 def stop_CountdownTime(adam: Adam = Depends(get_adam_obj)):
     try:
-        return adam.countdownTimer.stop()
+        if adam.task_status == AdamTaskStatus.dancing:
+            return adam.countdownTimer.stop()
         # return 'ok'
     except Exception as e:
         return JSONResponse(status_code=510, content={'error': str(e)})
@@ -808,9 +815,9 @@ def stop_CountdownTime(adam: Adam = Depends(get_adam_obj)):
 @router.post("/stop_followCountdownTimer", summary='stop_CountdownTime')
 def stop_followCountdownTimer(adam: Adam = Depends(get_adam_obj)):
     try:
-        if adam.task_status == "following":
-            adam.followCountdownTimer.stop()
-        return 'ok'
+        if adam.task_status == AdamTaskStatus.following:
+            return adam.followCountdownTimer.stop()
+        return adam.task_status
     except Exception as e:
         return JSONResponse(status_code=510, content={'error': str(e)})
 

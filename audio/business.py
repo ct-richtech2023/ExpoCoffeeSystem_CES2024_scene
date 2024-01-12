@@ -115,7 +115,8 @@ class Audio:
             if self.gtts_thread and self.gtts_thread.is_alive():
                 self.gtts_thread.pause()
             play_file = self.gtts_thread.generate_mp3(text)
-            self.gtts_thread.play_voice(file_name=play_file)
+            if play_file and os.path.exists(play_file):
+                self.gtts_thread.play_voice(file_name=play_file)
             if self.gtts_thread and self.gtts_thread.is_alive():
                 self.gtts_thread.proceed()
         else:

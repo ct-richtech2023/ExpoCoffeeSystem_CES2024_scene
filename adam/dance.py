@@ -119,13 +119,14 @@ class FollowCountdownTimer:
         if self.is_running:
             self.stop()
 
-    def stop(self):
+    def stop(self, idle=True):
         self.is_running = False
         logger.info("Countdown ends")
         VisualDetectInterface.stop_following()
         AudioInterface.stop()
         AdamInterface.stop_move()
-        AdamInterface.change_adam_status_idle("idle")
+        if idle:
+            AdamInterface.change_adam_status_idle("idle")
 
 
     def set_time(self, new_time):

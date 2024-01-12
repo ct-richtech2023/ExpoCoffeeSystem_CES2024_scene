@@ -163,9 +163,7 @@ class MakeThread(threading.Thread):
                                     CenterInterface.update_task_status(coffee_record.task_uuid, define.TaskStatus.failed)
                                     time.sleep(10)
                                     continue
-                                # zero_dict = AdamInterface.zero()
-                                AdamInterface.stop_followCountdownTimer()
-                                zero_dict = AdamInterface.stop_CountdownTime()
+                                zero_dict = AdamInterface.zero(idle=False)
                                 if zero_dict.get('msg') == 'not ok':
                                     time.sleep(10)
                                     self.wait_adam_time += 10

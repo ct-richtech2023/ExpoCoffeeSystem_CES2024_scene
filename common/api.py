@@ -20,7 +20,8 @@ def module_base_url(module):
 
 
 class VisualDetectInterface:
-    base_url = 'http://192.168.2.55:5002'
+    # base_url = 'http://192.168.2.55:5002'
+    base_url = 'http://192.168.0.55:5002'  # scene url
 
     @classmethod
     def start_following(cls):
@@ -726,9 +727,10 @@ class AdamInterface:
         return res.json()
     
     @classmethod
-    def zero(cls):
+    def zero(cls, idle):
+        params = {'idle': idle}
         url = "{}/adam/zero".format(cls.base_url)
-        res = requests.post(url)
+        res = requests.post(url, params=params)
         logger.info('url={} result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             raise AdamError()

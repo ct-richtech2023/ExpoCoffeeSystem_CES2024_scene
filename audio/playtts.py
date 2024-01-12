@@ -1,5 +1,6 @@
 import threading
 import time
+import os
 
 from google.cloud import texttospeech
 from loguru import logger
@@ -92,7 +93,8 @@ class PlayThread(threading.Thread):
                 if not self.stop_flag:
                     play_file = self.generate_mp3(next_speak.text)
                     logger.debug('play_file={}'.format(play_file))
-                    self.play_voice(file_name=play_file)
+                    if play_file and os.path.exists(play_file):
+                        self.play_voice(file_name=play_file)
                     done(next_speak)
             else:
                 logger.info('sleep')

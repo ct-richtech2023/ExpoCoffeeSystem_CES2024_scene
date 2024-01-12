@@ -42,9 +42,10 @@ def cancel_task_by_task_uuid(db, task_uuid):
 
 
 def get_order_by_task_uuid(db, task_uuid):
-    order_number = db.query(task_table).filter(task_table.task_uuid == task_uuid).first()
-    record = db.query(order_table).filter(order_table.order_number == order_number.order_number).first()
-    return record.to_dict()
+    if order_number := db.query(task_table).filter(task_table.task_uuid == task_uuid).first():
+        if record := db.query(order_table).filter(order_table.order_number == order_number.order_number).first():
+            return record.to_dict()
+    return {}
 
 
 def create_paid_order_from_pos(db, order: center_schema.PosOrder):

@@ -83,6 +83,8 @@ def get_detect_all_data(db, name=None):
 def get_coffee_by_task_uuid(db, task_uuid):
     if record := db.query(coffee_table.Coffee).filter(coffee_table.Coffee.task_uuid == task_uuid).first():
         return record.to_dict()
+    else:
+        return {}
 
 
 # Coffee
