@@ -37,35 +37,6 @@ class Order(Customer):
     #     assert str.isdigit(v[9:]), 'error: The last four bits are not integers'
     #     return v
 
-class PosDrink(BaseModel):
-    reference_id: Optional[str] = ''
-    receipt_number: str
-    name: str
-    milk: Optional[str] = ''
-    choose_beans: Optional[str] = ''
-    discount: Optional[float] = 0
-    refund: define.SUPPORT_REFUND_STATUS = define.RefundStatus.no
-    unit_money: Optional[float]
-    option: dict
-
-
-class PosOrder(BaseModel):
-    order_number: str
-    reference_id: Optional[str] = ''
-    total_discount_money: Optional[float]
-    total_tax_money: Optional[float]
-    total_tip_money: Optional[float]
-    total_money: Optional[float]
-    currency: Optional[str] = 'USD'
-    status: define.SUPPORT_ORDER_STATUS = define.OrderStatus.paid
-    refund: define.SUPPORT_REFUND_STATUS = define.RefundStatus.no
-    name: Optional[str] = ''
-    mail: Optional[str] = ''
-    phone: Optional[str] = ''
-    is_vip: Optional[int]
-    drinks: List[PosDrink] = Field(..., min_items=1)
-
-
 
 class PadDrink(BaseModel):
     reference_id: Optional[str] = ''
@@ -76,6 +47,7 @@ class PadDrink(BaseModel):
     discount: define.SUPPORT_DISCOUNT_STATUS = define.DiscountStatus.no
     refund: define.SUPPORT_REFUND_STATUS = define.RefundStatus.no
     option: dict
+
 
 class PadOrder(BaseModel):
     order_number: str

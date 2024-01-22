@@ -17,16 +17,6 @@ from common.schemas import adam as adam_schema
 
 # from common.conf import get_adam_config
 
-def get_devs():
-    devs = set()
-    for root, dirs, files in os.walk('/dev'):
-        if root == '/dev' or root == '/dev/usb':
-            logger.debug('{}:{}'.format(root, files))
-            for f in files:
-                devs.add(os.path.join(root, f))
-    return devs
-
-
 milkshake_Serial_dict = {"J": "H", "K": "G", "L": "F", "M": "E", "N": "D", "O": "C", "P": "B", "Q": "A"}
 
 
@@ -52,6 +42,12 @@ class Serial_Pump:
     def __init__(self, dev_name):
         self.dev_name = dev_name
         self.MachineConfig = total_schema.MachineConfig(**conf.get_machine_config())
+        self.lock = threading.Lock()
+        self.machine_dict = None
+        self.refresh_config()
+
+    def new_communication(self):
+        return Communication(self.dev_name)
 
     def open_port_one_by_time(self, open_dict):
         """
@@ -76,36 +72,37 @@ class Serial_Pump:
                     self.send_one_msg(config.arduino_write.lower())
         except Exception as e:
             logger.error(traceback.format_exc())
-            get_devs()
             raise e
         finally:
             lock.release()
             self.send_one_msg('i')  # 关闭所有龙头
             logger.info('open_port_one_by_time release lock')
 
-    def open_port_together_by_speed(self, open_dict):
+    def open_port_together_by_type(self, open_dict, stop_event):
         """
         一次性打开所有龙头
         open_dict: {'material_name': quantity}
 
         """
-        lock = threading.Lock()
-        lock.acquire()
+
+        self.lock.acquire()
         logger.info('open_port_together_by_speed get lock')
         logger.info('open_dict is {}'.format(open_dict))
-        take_flag = True
-
+        ser = None
         try:
-            machine_config = self.refresh_config()  # 每次使用前，重新读取数据库内容进行刷新
-            logger.info('refresh_config get machine_config is {}'.format(machine_config))
+            self.refresh_config()  # 每次使用前，重新读取数据库内容进行刷新
+            if not self.machine_dict:
+                raise Exception(f"open_port_together_by_type self.machine_dict is None")
+            logger.info('refresh_config get machine_config is {}'.format(self.machine_dict))
 
             opened = []  # 已经打开的龙头列表
             closed = []  # 已经关闭的龙头列表
 
+            ser = self.new_communication()
             for material, quantity in open_dict.items():
-                config = machine_config.get(material)
+                config = self.machine_dict.get(material)
                 if quantity > 0:
-                    self.send_one_msg(config.arduino_write)  # 依次打开龙头
+                    self.send_one_msg(ser, config.arduino_write)  # 依次打开龙头
                     opened.append(material)
                     if config.type == "speed":
                         logger.debug(f'open material {material} for {quantity} ml')
@@ -114,44 +111,49 @@ class Serial_Pump:
 
             start_time = time.time()  # 打开龙头时间，通过时间控制龙头开关的时候用到
 
-            while len(closed) < len(opened) and take_flag:
+            while len(closed) < len(opened) and not stop_event.is_set():
                 for material, quantity in open_dict.items():
-                    config = machine_config.get(material)
+                    config = self.machine_dict.get(material)
                     close_char = chr(ord(str(config.arduino_write)) + 32)  # 大写字符转小写字符
                     if material not in closed:
                         # 只对没有关闭的进行判断
                         # if config.type == 'time' and time.time() - start_time >= config.delay_time:
                         if config.type == 'time' and time.time() - start_time >= quantity:
                             # 根据时间判断开关
-                            self.send_one_msg(close_char)  # 发送英文字符进行关闭
+                            self.send_one_msg(ser, close_char)  # 发送英文字符进行关闭
                             closed.append(material)
                             logger.debug(f'closed {material} after {time.time() - start_time} s')
                             logger.debug(f'closed {material} after {quantity} s')
                         elif config.type == 'speed' and time.time() - start_time >= round(quantity / config.speed, 1):
                             # 根据流量计读数判断开关
-                            self.send_one_msg(close_char)  # 发送英文字符进行关闭
+                            self.send_one_msg(ser, close_char)  # 发送英文字符进行关闭
                             closed.append(material)
                             logger.debug(f'close {material} after {time.time() - start_time} s')
-                            logger.debug(f'close {material} after {quantity/config.speed} s')
+                            logger.debug(f'close {material} after {quantity / config.speed} s')
         except Exception as e:
             logger.error(traceback.format_exc())
-            get_devs()
             raise Exception(e)
         finally:
-            lock.release()
-            # self.send_one_msg('i', self.dev_name)  # 关闭所有龙头
+            if ser:
+                self.send_one_msg(ser, 'i')  # 关闭所有龙头
+                ser.close_engine()
+            self.lock.release()
+
             take_flag = True
             logger.info('open_port_together_by_speed release lock')
 
-    def send_one_msg(self, char):
+    def send_one_msg(self, ser, char):
         try:
-            ser = Communication(self.dev_name)
             ser.send_data(char.encode())
             logger.info('send char {}'.format(char))
         except serial.SerialException as e:
             logger.error("serial connect error：", e)
-        finally:
-            ser.close_engine()
+
+    def close_all(self):
+        com = self.new_communication()
+        self.send_one_msg(com, "i")
+        com.close_engine()
+
 
     def refresh_config(self):
         # 获取所有machine_config表tap和cup的数据
@@ -162,6 +164,7 @@ class Serial_Pump:
             machine_configs = res.json()
         machine_dict = {}
         for config in machine_configs:
-            if config.get('machine') in ['tap', 'cup', 'fruit']:
+            if config.get('machine') == 'tap':
                 machine_dict[config.get('name')] = MachineConfig(**config)
-        return machine_dict
+        if machine_dict:
+            self.machine_dict = machine_dict

@@ -18,8 +18,8 @@ class ReportThread(Thread):
             try:
                 coffee = get_one_waiting_record(next_report_uuid)
                 logger.debug('report {}'.format(next_report_uuid))
-                ASWServerInterface.making_report(next_report_uuid, coffee.dict())
-                done_report(next_report_uuid)
+                if ASWServerInterface.making_report(next_report_uuid, coffee.dict()):
+                    done_report(next_report_uuid)
             except Exception as e:
                 logger.warning('{} report failed'.format(next_report_uuid))
 

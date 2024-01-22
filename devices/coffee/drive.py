@@ -2,7 +2,6 @@ import time
 
 from loguru import logger
 import serial.tools.list_ports
-# from serial import Serial
 
 
 class Communication:
@@ -28,11 +27,9 @@ class Communication:
         self.main_engine.open()
 
     def close_engine(self):
-        # if self.main_engine.is_open:
-        #     logger.info('close {}'.format(self.com_name))
-        #     self.main_engine.close()
-        logger.info('close {}'.format(self.com_name))
-        self.main_engine.close()
+        if self.main_engine.is_open:
+            logger.info('close {}'.format(self.com_name))
+            self.main_engine.close()
 
     @staticmethod
     def available_serial_port():
@@ -50,6 +47,7 @@ class Communication:
         self.wait_busy()
         try:
             self.busy_flag = True
+            logger.info('send_data {}'.format(data))
             self.main_engine.write(data)
         finally:
             self.busy_flag = False
@@ -70,21 +68,37 @@ class Communication:
 
 if __name__ == '__main__':
     # test tap
-    serial = Communication("/dev/ttyS0", 9600, 8, 1, 1)
-    serial.send_data('L'.encode())
-    time.sleep(5)
-    serial.send_data('l'.encode())
+    ser = Communication("/dev/ttyUSB0", 9600, 8, 1, 1)
+    ser.send_data('A'.encode())
+    time.sleep(3)
+    ser.send_data('a'.encode())
+    ser.close_engine()
+    time.sleep(1)
+
+    # for i in range(50):
+    #     ser = Communication("/dev/ttyS1", 9600, 8, 1, 1)
+    #     ser.send_data('A'.encode())
+    #     ser.send_data('B'.encode())
+    #     ser.send_data('C'.encode())
+    #     ser.send_data('D'.encode())
+    #     time.sleep(1)
+    #     ser.send_data('a'.encode())
+    #     ser.send_data('b'.encode())
+    #     ser.send_data('c'.encode())
+    #     ser.send_data('d'.encode())
+    #     ser.close_engine()
+    #     time.sleep(1)
+
 
     """
-    # Creamer instructions(奶油机指令)
-    # RS485    
-    # 波特率 38400
-    # 开：01 06 00 34 00 01 09 C4 
-    # 关：01 06 00 34 00 00 C8 04 
-    # b'\x01\x03\x10\x00\x00\x01\x80\xCA'
+    Creamer instructions(奶油机指令)
+    RS485    
+    波特率 38400
+    开：01 06 00 34 00 01 09 C4 
+    关：01 06 00 34 00 00 C8 04 
+    b'\x01\x03\x10\x00\x00\x01\x80\xCA'
     """
     # serial = Communication("/dev/ttyUSB0", 38400, 8, 1, 1)
     # serial.send_data(b'\x01\x06\x00\x34\x00\x01\x09\xC4')
     # time.sleep(5)
     # serial.send_data(b'\x01\x06\x00\x34\x00\x00\xC8\x04')
-

@@ -118,9 +118,9 @@ class IceType:
 
 
 class ExceptionType:
-    adam_init_failed = 'Botbar init failed'
+    adam_init_failed = 'Adam init failed'
     coffee_device_init_failed = 'coffee device init failed'
-    adam_initial_position_failed = 'Botbar go to initial position failed'
+    adam_initial_position_failed = 'Adam go to initial position failed'
     wake_init_failed = 'wake init failed'
 
 
@@ -165,9 +165,11 @@ class PrePosition:
 class MaterialType:
     cup = 'cup'
     coffee = 'coffee'  # 美式、冷咖、热水、热牛奶、拿铁
-    milk = 'milk'  # 奶
+    # milk = 'milk'  # 奶
     treacle = 'treacle'  # 糖浆
     endless = 'endless'
+    Milk = "Milk"
+    Plant_based_milk = "Plant-based milk"
 
 
 class Constant:
@@ -262,6 +264,16 @@ class AudioConstant:
             return path
         else:
             return AudioConstant.TextCode.CODE_MSG.get(code)
+
+
+class ThreadName:
+    left_pos_record = 'left_pos_record'
+    right_pos_record = 'right_pos_record'
+    coffee_thread = 'coffee_status'
+    dance_thread = 'dance'
+    follow_thread = 'follow'
+    cup_detect = 'cup_detect'
+    person_detect = 'cup_detect'
 
 
 support_take_drinks = ['Shaken']

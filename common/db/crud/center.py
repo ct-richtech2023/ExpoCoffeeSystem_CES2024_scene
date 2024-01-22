@@ -48,56 +48,6 @@ def get_order_by_task_uuid(db, task_uuid):
     return {}
 
 
-def create_paid_order_from_pos(db, order: center_schema.PosOrder):
-    if check_order_is_exist(db, order.order_number):
-        raise Exception('already exist order_number={}'.format(order.order_number))
-    proces_order = db.query(order_table).filter(order_table.status.in_([OrderStatus.processing,
-                                                                        OrderStatus.paid,
-                                                                        OrderStatus.waiting])).order_by(order_table.create_time.asc()).first()
-    if proces_order:
-        print('exist process order', proces_order.id)
-        create_time = proces_order.create_time
-    else:
-        print('no process order')
-        create_time = datetime.datetime.now()
-
-    new_order_dict = order.dict()
-    new_order_dict['create_time'] = create_time
-    db.add(order_table.implement(new_order_dict))
-    for i, drink in enumerate(order.drinks):
-        formula = drink.name
-        task_uuid = uuid.uuid3(uuid.NAMESPACE_DNS, "{} {} {}".format(order.order_number, i, formula))
-        if milk := drink.milk:
-            if milk.lower() == "Plant-based milk".lower():
-                milk = "plant_milk"
-            elif milk.lower() == "Milk".lower():
-                milk = "fresh_dairy"
-        if choose_beans := drink.choose_beans:
-            if choose_beans.lower() == "Medium roast coffee beans".lower():
-                choose_beans = "medium_roast"
-            elif choose_beans.lower() == "High roast coffee beans".lower():
-                choose_beans = "high_roast"
-        task = {
-            'order_number': order.order_number,
-            'receipt_number': drink.receipt_number,
-            'task_uuid': task_uuid,
-            'formula': formula,
-            'cup': format_option(drink.option.get('cup', 'Med')),
-            'sweetness': int(drink.option.get('sweetness', 100)),
-            'ice': format_option(drink.option.get('ice', 'light')),
-            'milk': milk,
-            'beans': choose_beans,
-            'discount': drink.discount,
-            'unit_money': drink.unit_money,
-            'refund': drink.refund,
-            'status': OrderStatus.paid,
-            'create_time': create_time
-        }
-
-        task_value = task_table(**task)
-        db.add(task_value)
-
-
 def delete_test_order():
     with MySuperContextManager() as db:
         if order_record := db.query(order_table).filter(order_table.order_number.like("TEST%")).first():
@@ -182,6 +132,7 @@ def create_paid_order_from_pad(db, order: center_schema.PadOrder):
         #     db.add(task_value)
 
     db.commit()
+
 
 def create_new_record_from_pad(db, order: center_schema.Order):
     if check_order_is_exist(db, order.order_number):
@@ -332,26 +283,26 @@ def get_all_order_tasks_by_time(db, start_time: datetime = None, end_time: datet
     return record_list
 
 
-def get_all_paid_tasks_by_time(db, start_time: datetime = None, end_time: datetime = None,
-                               order_number: str = None) -> List:
-    """根据时间段查询所有订单下的任务"""
-    logger.info("get_all_order_tasks")
-    condition = [task_table.status == TaskStatus.paid]
-    if start_time:
-        condition.append(task_table.create_time >= start_time)
-    if end_time:
-        condition.append(task_table.create_time <= end_time)
-    if order_number:
-        condition.append(task_table.order_number == order_number)
-    records = db.query(task_table).filter(*condition).order_by(task_table.id.asc()).all()
-    # logger.info("get_orders  records==={}".format(records))
-    result = []
-    for record in records:
-        schema_dict = center_schema.TaskStatus.from_orm(record).dict()
-        schema_dict['create_data'] = record.create_time.strftime("%B %d,%Y")
-        schema_dict['create_time'] = record.create_time.strftime("%I:%M:%S %p")
-        result.append(schema_dict)
-    return result
+# def get_all_paid_tasks_by_time(db, start_time: datetime = None, end_time: datetime = None,
+#                                order_number: str = None) -> List:
+#     """根据时间段查询所有订单下的任务"""
+#     logger.info("get_all_order_tasks")
+#     condition = [task_table.status == TaskStatus.paid]
+#     if start_time:
+#         condition.append(task_table.create_time >= start_time)
+#     if end_time:
+#         condition.append(task_table.create_time <= end_time)
+#     if order_number:
+#         condition.append(task_table.order_number == order_number)
+#     records = db.query(task_table).filter(*condition).order_by(task_table.id.asc()).all()
+#     # logger.info("get_orders  records==={}".format(records))
+#     result = []
+#     for record in records:
+#         schema_dict = center_schema.TaskStatus.from_orm(record).dict()
+#         schema_dict['create_data'] = record.create_time.strftime("%B %d,%Y")
+#         schema_dict['create_time'] = record.create_time.strftime("%I:%M:%S %p")
+#         result.append(schema_dict)
+#     return result
 
 
 def get_frequent_tasks(db, param):

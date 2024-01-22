@@ -96,9 +96,7 @@ class EnvConfig:
         try:
             logger.info('adam init config before work')
             self.init_adam()
-            ExceptionInterface.clear_error(ExceptionType.adam_init_failed)
         except Exception as e:
-            ExceptionInterface.add_error(ExceptionType.adam_init_failed, str(e))
             logger.error('{}, err={}'.format(ExceptionType.adam_initial_position_failed, str(e)))
             time.sleep(3)
             # 配置落地失败，直接异常退出

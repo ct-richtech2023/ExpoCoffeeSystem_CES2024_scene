@@ -1,10 +1,8 @@
 import serial
 import time
 import logging
-#from common.db.crud import coffee as coffee_crud
+# from common.db.crud import coffee as coffee_crud
 from loguru import logger
-
-
 
 # 串口设置
 # port = 'COM8'
@@ -88,146 +86,75 @@ def read_registers(serial_port, address, count):
 # 写单个寄存器数据
 def write_register(serial_port, address, value):
     request = bytearray([slave_address, write_register_func_code])
-    #print(f'request0 {request}')
     request.extend(address.to_bytes(2, 'big'))
-    #print(f'request1 {request}')
     request.extend(value.to_bytes(2, 'big'))
-    #print(f'request2 {request}')
     request.extend(calculate_crc16(request))
-    #print('\x01\x03\x10\x00\x00\x01\x80\xca\\') #(b'\x01\x06 \x00\x00\x01C\xca')
-    #print(f'request3 {request}')
     serial_port.write(request)
-    #serial_port.write(b'\x01\x06\x20\x00\x00\x06\x02\08')
-    # serial_port.write(bytes.fromhex("0106200000060208"))
-    #serial_port.write(bytes.fromhex("01031000000180CA"))
-    #serial_port.flush()
     time.sleep(0.1)  # 等待响应数据返回
     response = serial_port.read_all()
-    #response = serial_port.readline()
     return response
 
 
+if __name__ == '__main__':
+    # 打开串口
+    ser = serial.Serial(port, baudrate)
 
+    # 检查咖啡机状态和故障
+    status_response = read_registers(ser, 0x1000, 1)
+    error_response = read_registers(ser, 0x1001, 8)
 
-#----------------------------------------------------------------------------
-# 打开串口
-#ser = serial.Serial(port, baudrate)
+    status = int.from_bytes(status_response[3:5], 'big')
+    errors = [int.from_bytes(error_response[i + 3:i + 5], 'big') for i in range(8)]
 
-#a = b'\x01\x03\x10\x00\x00\x01\x80\xCA'
-#ser.write(a)
-#time.sleep(0.1)  # 等待响应数据返回
-#response1 = ser.read_all()
-#print(f'send {a}')
-#print(f'status_response : {response1}')
+    print(f'status_response: {status_response}')
+    print(f'error_response: {error_response}')
 
-#b = b'\x01\x03\x10\x01\x00\x08\x11\x0C'
-#ser.write(b)
-#time.sleep(0.1)  # 等待响应数据返回
-#response2 = ser.read_all()
-#print(f'send {b}')
-#print(f'error_response : {response2}')
-# 关闭串口
-#ser.close()
+    print(f'status: {status}')
+    print(f'errors: {errors}')
 
-#ser = serial.Serial(port, baudrate)
+    if status == 0xFF and all(error == 0 for error in errors):
+        # 咖啡机处于空闲状态且无故障，开始制作咖啡
+        coffee_ui_position = 0x0000
+        start_coffee = 0x2000
+        write_register(ser, coffee_control_register_B, start_coffee)
+        print("制作第一个咖啡")
 
-#a = b'\x01\x03\x10\x00\x00\x01\x80\xCA'
-#ser.write(a)
-#time.sleep(0.1) # 等待响应数据返回
-#response1 = ser.read_all()
-#print(f'send {a}')
-#print(f'status_response : {response1}')
+    # 关闭串口
+    ser.close()
 
-#b = b'\x01\x03\x10\x01\x00\x08\x11\x0C'
-#ser.write(b)
-#time.sleep(0.1) # 等待响应数据返回
-#response2 = ser.read_all()
-#print(f'send {b}')
-#print(f'error_response : {response2}')
-#----------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------
+    # 打开串口
+    # ser = serial.Serial(port, baudrate)
 
+    # a = b'\x01\x03\x10\x00\x00\x01\x80\xCA'
+    # ser.write(a)
+    # time.sleep(0.1)  # 等待响应数据返回
+    # response1 = ser.read_all()
+    # print(f'send {a}')
+    # print(f'status_response : {response1}')
 
-# 打开串口
-#ser = serial.Serial(port, baudrate)
+    # b = b'\x01\x03\x10\x01\x00\x08\x11\x0C'
+    # ser.write(b)
+    # time.sleep(0.1)  # 等待响应数据返回
+    # response2 = ser.read_all()
+    # print(f'send {b}')
+    # print(f'error_response : {response2}')
+    # 关闭串口
+    # ser.close()
 
-# #检查咖啡机状态和故障
-#status_response = read_registers(ser, 0x1000, 1)
-#error_response = read_registers(ser, 0x1001, 8)
+    # ser = serial.Serial(port, baudrate)
 
-#status = int.from_bytes(status_response[3:5], 'big')
-#errors = [int.from_bytes(error_response[i+3:i+5], 'big') for i in range(8)]
+    # a = b'\x01\x03\x10\x00\x00\x01\x80\xCA'
+    # ser.write(a)
+    # time.sleep(0.1) # 等待响应数据返回
+    # response1 = ser.read_all()
+    # print(f'send {a}')
+    # print(f'status_response : {response1}')
 
-#print(f'status_response: {status_response}')
-#print(f'error_response: {error_response}')
-
-#print(f'status: {status}')
-#print(f'errors: {errors}')
-
-# # print(hex(status))
-
-# # if status == 0x1:
-# #    print("init status ")
-
-# # result_list = coffee_crud.get_machine_states_by_id()
-# # print(result_list)
-# if status == 0xFF and all(error == 0 for error in errors):
-#     # 咖啡机处于空闲状态且无故障，开始制作咖啡
-#     coffee_ui_position = 0x0000
-#     start_coffee = 0x2000
-#write_register(ser, coffee_control_register_B, start_coffee)
-#     print("制作第一个咖啡")
-
-# # 关闭串口
-# ser.close()
-
-
-
-
-
-
-
-
-
-
-
-# 打开串口
-ser = serial.Serial(port, baudrate)
-#ser.close()
-#ser.open()
-retuun = write_register(ser, coffee_control_register, 0x0000)
-
-print(f'write return: {retuun}')
-#logger = get_logger()
-
-#while True:
-#    num = 1
-#    for coffee_ui_position in coffee_ui_position_list:
-#        is_error = True
-#        while is_error:
-#            # 检查咖啡机状态和故障
-#            status_response = read_registers(ser, 0x1000, 1)
-#            error_response = read_registers(ser, 0x1001, 8)
-
-#            status = int.from_bytes(status_response[3:5], 'big')
-#            errors = [int.from_bytes(error_response[i + 3:i + 5], 'big') for i in range(8)]
-#            print(status_response)
-#            print(status)
-#            print(errors)
-#             logger.info(f"获取机器状态码：{status}")
-#             logger.info(f"获取机器状态：{errors[0]}")
-
-#            for error_id, errors_name in error_dict.items():
-#                if int(errors[0]) == int(error_id):
-#                     logger.info(f"机器故障：{errors_name}")
-#                    time.sleep(5)
-
-#                if status == 0xFF and all(error == 0 for error in errors):
-#                 # 咖啡机处于空闲状态且无故障，开始制作咖啡
-#                 logger.info("咖啡机故障已解决")
-#                 logger.info("咖啡机处于空闲状态且无故障，开始制作咖啡")
-#                    is_error = False
-#                    write_register(ser, coffee_control_register, coffee_ui_position)
-#         logger.info(f"正在制作第{num}杯")
-
-# 关闭串口
-ser.close()
+    # b = b'\x01\x03\x10\x01\x00\x08\x11\x0C'
+    # ser.write(b)
+    # time.sleep(0.1) # 等待响应数据返回
+    # response2 = ser.read_all()
+    # print(f'send {b}')
+    # print(f'error_response : {response2}')
+    # ----------------------------------------------------------------------------

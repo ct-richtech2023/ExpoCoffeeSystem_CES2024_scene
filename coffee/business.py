@@ -79,7 +79,7 @@ class MakeThread(threading.Thread):
 
     def make_coffee_by_type(self, record: coffee_schema.CoffeeRecord):
         with MySuperContextManager() as db_session:
-            CenterInterface.restart_service('audio')
+            # CenterInterface.restart_service('audio')
             AudioInterface.gtts(coffee_crud.choose_one_speech_text(db_session, define.AudioConstant.TextCode.start_makine))
             # 1. set status is processing
             update_dict = dict(status=define.TaskStatus.processing)
@@ -90,10 +90,10 @@ class MakeThread(threading.Thread):
                 # 2. call adam to make coffee
                 if record.formula in self.cold_drink:
                     logger.info('formula={}, make_cold_drink'.format(record.formula))
-                    AdamInterface.make_cold_drink(record.formula, record.sweetness, record.ice, record.milk, record.beans, record.receipt_number, record.task_uuid)
+                    AdamInterface.make_cold_drink(record.dict())
                 elif record.formula in self.hot_drink:
                     logger.info('formula={}, make_hot_drink'.format(record.formula))
-                    AdamInterface.make_hot_drink(record.formula, record.sweetness, record.ice, record.milk, record.beans, record.receipt_number, record.task_uuid)
+                    AdamInterface.make_hot_drink(record.dict())
                 else:
                     raise Exception('not support formula:{}'.format(record.formula))
 
@@ -103,32 +103,27 @@ class MakeThread(threading.Thread):
                 CenterInterface.update_task_status(record.task_uuid, define.TaskStatus.completed)
                 self.last_completed['task_uuid'] = str(record.task_uuid)
                 self.last_completed['formula'] = record.formula
-                record.status = define.TaskStatus.completed
+
             except (AdamError, StopError) as e:
                 # 4. adam error, set status is failed
+                logger.error(traceback.format_exc())
                 update_dict = dict(status=define.TaskStatus.failed, failed_msg='AdamError {}'.format(e))
                 coffee_crud.update_coffee_by_task_uuid(db_session, record.task_uuid, update_dict)
                 CenterInterface.update_task_status(record.task_uuid, define.TaskStatus.failed)
-                record.status = define.TaskStatus.failed
             finally:
                 coffee_crud.add_report(db_session, record.task_uuid)
-                # pass
-                # CenterInterface.restart_service('audio')
 
     def run(self) -> None:
         # 2. while cycle
         new_flag = True
-        random_dance_count = 0  # 随机跳舞次数
-        release_ice_count = 0  # 释放冰块次数
         start_time = time.perf_counter()
-        idle_time = 0
         while self._run_flag:
             if self._pause:
                 time.sleep(1)
             else:
                 with MySuperContextManager() as db_session:
                     coffee_record = coffee_crud.get_one_waiting_record()
-                    if coffee_record :
+                    if coffee_record:
                         if not self._run_flag:  # 急停时，run_flag为False，退出线程
                             break
                         if not new_flag:
@@ -138,14 +133,13 @@ class MakeThread(threading.Thread):
                         logger.info('{} exist not completed record={}'.format(coffee_table_name, coffee_record.dict()))
                         try:
                             self._current_task_uuid = coffee_record.task_uuid
-                            formula_composition = list(get_coffee_obj().get_composition_by_name_and_cup(coffee_record.formula,
+                            finally_composition = list(get_coffee_obj().get_composition_by_name_and_cup(coffee_record.formula,
                                                                                                         coffee_record.cup,
-                                                                                                        coffee_record.sweetness,
                                                                                                         coffee_record.milk).keys())
 
                             material_conditions = get_coffee_obj().get_material_conditions()
                             current_all_lack = material_conditions.get('replace', [])
-                            current_all_lack_list = list(set(formula_composition) & set(current_all_lack))
+                            current_all_lack_list = list(set(finally_composition) & set(current_all_lack))
                             self._current_formula_lack = [material_conditions.get('material_name_map', {})[lack_name] for lack_name in current_all_lack_list]
                             if self._current_formula_lack:
                                 tts_words = material_conditions.get('speak')
@@ -186,9 +180,8 @@ class MakeThread(threading.Thread):
                             CenterInterface.update_task_status(coffee_record.task_uuid, define.TaskStatus.failed)
                             logger.warning("task_uuid={} make {} failed, adam goto work zero".format(
                                 coffee_record.task_uuid, coffee_record.formula))
-                            AudioInterface.gtts("make {} failed, Botbar stopped.".format(coffee_record.formula))
+                            AudioInterface.gtts("make {} failed, adam stopped.".format(coffee_record.formula))
                             time.sleep(10)
-                            # AdamInterface.zero()
                     else:
                         if new_flag:
                             new_flag = False
@@ -199,16 +192,6 @@ class MakeThread(threading.Thread):
                                 AdamInterface.standby_pose()
                             except Exception:
                                 pass
-                            idle_time = time.time()
-                        if time.time() - idle_time > 30 * 60 * (release_ice_count + 1):
-                            logger.info('idle more than 30 min, release ice')
-                            #AdamInterface.release_ice()
-                            release_ice_count += 1
-                            random_dance_count += 1
-                        elif time.time() - idle_time > 10 * 60 * (random_dance_count + 1):
-                            logger.info('idle more than 10 min, call dance')
-                            # AdamInterface.random_dance()
-                            random_dance_count += 1
                     time.sleep(1)
 
 
@@ -236,7 +219,7 @@ class Business:
         # self.cleaning_history_thread.start()
 
 
-    def get_composition_by_name_and_cup(self, formula, cup, sweetness, milk):
+    def get_composition_by_name_and_cup(self, formula, cup, milk):
         with MySuperContextManager() as db_session:
             compositions = db_session.query(coffee_table.Composition).filter_by(formula=formula, cup=cup).all()
             if not compositions:
@@ -247,24 +230,39 @@ class Business:
                 raise FormulaError(msg)
             normal_composition = {}
             foam_composition = {}
+            support_milk = coffee_crud.get_milk_material(db_session)
+            real_milk = support_milk.get(milk, {}).get("name", "")
+
             for composition in compositions:
                 if composition.material == 'foam':
                     #  奶泡原料要详细分析奶泡组成
                     foam_composition = json.loads(composition.extra).get('foam_composition')
-                materials = coffee_crud.get_material(db_session, composition.material, in_use=1)
+                    for name, quantity in foam_composition.items():
+                        normal_composition[name] = quantity + normal_composition.get(name, 0)
+                else:
+                    normal_composition[composition.material] = composition.count
+
+            finally_composition = {}
+            for name, count in normal_composition.items():
+                materials = coffee_crud.get_material(db_session, name, in_use=1)
                 if materials:
                     material = materials[0]
-                    normal_composition[material.name] = material.count
+                    if material.type in ["Milk", "Plant-based milk"]:
+                        if not real_milk:
+                            msg = '{} type is not in use, please check again'.format(milk)
+                            AudioInterface.gtts(msg)
+                            logger.error(msg)
+                        else:
+                            finally_composition[real_milk] = count + finally_composition.get(real_milk, 0)
+                    else:
+                        finally_composition[name] = count
                 else:
                     msg = 'material {} is not in use, please check again'.format(composition.material)
                     AudioInterface.gtts(msg)
                     logger.error(msg)
 
-            result = copy.deepcopy(normal_composition)
-            for name, quantity in foam_composition.items():
-                result[name] = result.get(name, 0) + quantity
-            logger.debug('composition is {}, foam_composition is {}, result is {}'.format(normal_composition, foam_composition, result))
-            return result
+            logger.debug('normal_composition is {}, foam_composition is {}, finally_composition is {}'.format(normal_composition, foam_composition, finally_composition))
+            return finally_composition
 
     def start_make_coffee_thread(self, desc):
         def start_thread():

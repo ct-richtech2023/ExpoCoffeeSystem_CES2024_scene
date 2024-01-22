@@ -4,6 +4,8 @@ from loguru import logger
 from copy import deepcopy
 import requests
 import serial.tools.list_ports
+
+
 # from common.api import AudioInterface
 
 
@@ -12,8 +14,9 @@ class CoffeeError(Exception):
 
 
 class Coffee_Driver:
-    def __init__(self, device=None):
-        self.last_status = {"status_code": "", "status": ""}
+    def __init__(self, stop_event, device=None):
+        self.last_status = {"status_code": "", "status": "", "error_code": [], "error": []}
+        self.stop_event = stop_event
         self.baudrate = 57600
         # 咖啡机从机地址
         self.slave_address = 0x01
@@ -134,12 +137,13 @@ class Coffee_Driver:
 
         status = int.from_bytes(status_response[3:5], 'big')
         errors = [int.from_bytes(error_response[i + 3:i + 5], 'big') for i in range(8)]
+
         logger.debug(f"status: {status}, errors: {errors}")
         re_query = False
         re_query_num = 0
-        if status not in self.machine_states_state_dict or 4096 <= status <= 8191 or 8192 <= status <= 12287:
+        if not (status in self.machine_states_state_dict or 4096 <= status <= 8191 or 8192 <= status <= 12287):
             re_query = True
-        while re_query:
+        while re_query and not self.stop_event.is_set():
             time.sleep(2)
             re_query_num += 1
             logger.info("re into query_status")
@@ -151,8 +155,9 @@ class Coffee_Driver:
             if status in self.machine_states_state_dict or 4096 <= status <= 8191 or 8192 <= status <= 12287:
                 re_query = False
             if re_query_num > 100:
+                self.stop_event.set()
                 raise CoffeeError(f'Failed to query_status. The coffee machine status is: {status}')
-        status_dict = {}
+        status_dict = dict()
         if status in self.machine_states_state_dict:
             status_dict["status_code"] = status
             status_dict["status"] = self.machine_states_state_dict.get(status, "")
@@ -163,18 +168,18 @@ class Coffee_Driver:
             elif 8192 <= status <= 12287:
                 status_dict["status_code"] = status
                 status_dict["status"] = "Clearing fault reset"
-        if errors[0] in self.machine_states_error_dict:
-            status_dict["error_code"] = errors[0]
-            status_dict["error"] = self.machine_states_error_dict.get(errors[0], "")
-        # logger.debug(f"status_dict: {status_dict}")
+        if errors:
+            errors_code_list = [item for item in errors if item != 0]
+            status_dict["error_code"] = errors_code_list
+            error_list = list()
+            for error in errors_code_list:
+                error_list.append(self.machine_states_error_dict.get(error, "unknow"))
+            status_dict["error"] = error_list
+
         self.last_status["status_code"] = status_dict.get("status_code", "")
         self.last_status["status"] = status_dict.get("status", "")
-        if status_dict.get("error_code", ""):
-            self.last_status["error_code"] = status_dict.get("error_code", "")
-            self.last_status["error"] = status_dict.get("error", "")
-        else:
-            self.last_status["error_code"] = ""
-            self.last_status["error"] = ""
+        self.last_status["error_code"] = status_dict.get("error_code", [])
+        self.last_status["error"] = status_dict.get("error", [])
         return status_dict
 
     def refresh_config(self):
@@ -187,7 +192,7 @@ class Coffee_Driver:
                 res = requests.get(url)
                 if res.status_code == 200:
                     machine_configs = res.json()
-                    machine_states_list = machine_configs.get("data",[])
+                    machine_states_list = machine_configs.get("data", [])
                     if machine_states_list:
                         break  # Break the loop if data is received
             except requests.RequestException as e:
@@ -207,7 +212,8 @@ class Coffee_Driver:
         logger.info("into send_control_message")
         coffee_control_register = self.get_register_adress(code)
         if coffee_control_register is None:
-            return "Unable to obtain the register address"
+            self.stop_event.set()
+            raise CoffeeError("Unable to obtain the register address")
         self.write_register(self.serial, coffee_control_register, control_content)
         time.sleep(3)
         status_dict = self.query_status()
@@ -221,7 +227,7 @@ class Coffee_Driver:
         logger.info(f'start make coffee,make_content:{make_content}')
         self.send_control_message('A', make_content)
         time.sleep(5)
-        result = self.wait_until_completed(make_content)
+        result = self.wait_until_idle()
         return result
 
     def cancel_make(self):
@@ -239,67 +245,43 @@ class Coffee_Driver:
         """
         logger.debug('select clean')
         clean_code = None
-        if code == 1:
-            clean_code = 0x0001
-        elif code == 2:
-            clean_code = 0x0002
-        elif code == 3:
-            clean_code = 0x0003
-        elif code == 4:
-            clean_code = 0x0004
-        elif code == 5:
-            clean_code = 0x0005
-        elif code == 6:
-            clean_code = 0x0006
+        if code in [1, 2, 3, 4, 5, 6]:
+            clean_code = int(f'0x{code:04X}', 16)
         if clean_code:
             self.send_control_message('C', clean_code)
+        else:
+            self.stop_event.set()
+            raise CoffeeError("Unable to clean coffee machine")
 
-    def wait_until_completed(self, make_content):
+    def wait_until_idle(self, check=False):
         """
         等待制作完成
         """
         start_time = time.time()
         logger.info("into wait_until_completed")
-        while True:
+        while True and not self.stop_event.is_set():
             status_dict = self.query_status()
             status_code = status_dict.get('status_code')
             status = status_dict.get('status')
-            error_code = status_dict.get('error_code', '')
-            error = status_dict.get('error', '')
+            error_code = set(status_dict.get('error_code', []))
+            error = status_dict.get('error', [])
             if error:
                 # 制作过程中有报错信息，立刻抛出异常
                 logger.error(error)
-                if error_code in [15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 29, 30, 75]:
-                    # AudioInterface.gtts(f"error is {error},Wait 5 minutes")
-                    start_time = time.time()
-                    wait_num = 0
-                    while True:
-                        if wait_num > 30:
-                            raise CoffeeError(
-                                f'Failed to make coffee. The coffee machine error is {error}')
-                        time.sleep(10)
-                        wait_num += 1
-                        logger.info(f"waiting process error ,time:{wait_num * 10}")
-                        status_dict = self.query_status()
-                        logger.info(f"status_dict:{status_dict}")
-                        status_code = status_dict.get('status_code')
-                        status = status_dict.get('status')
-                        error_code = status_dict.get('error_code', '')
-                        error = status_dict.get('error', '')
-                        if status_code == 255 and error_code == '':
-                            logger.debug('Preparing to remake coffee')
-                            # self.make_coffee(make_content)
-                            # self.send_control_message('A', make_content)
-                            start_time = time.time()
-                            break
-                    continue
-
-            # 制作过程中，如果状态是255 且无error就退出循环，否则一直等待
-            if status_code == 255 and error_code in ['', 27, 28]:
-                logger.debug('no making status in {}'.format(status))
-                break
+                process_error_list = {0, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 75}
+                if error_code - process_error_list:
+                    self.stop_event.set()
+                    raise CoffeeError(f'Failed to make coffee. The coffee machine error is {error}')
+            # 制作过程中，如果状态是255 且无error就退出循环，否则一直等待,27,28为豆仓缺豆
+            if status_code == 255 and not error_code - {0, 27, 28}:
+                if check:
+                    if error_code == {0}:
+                        break
+                else:
+                    logger.debug('no making status in {}'.format(status))
+                    break
             if time.time() - start_time > 5 * 60:
+                self.stop_event.set()
                 raise CoffeeError(f'Failed to make coffee. The coffee machine error is {error}')
             time.sleep(1)
         return True
-

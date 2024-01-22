@@ -26,11 +26,9 @@ def analyze_error_code(func):
         by = str([i[-2] for i in stack])
         if left_return_code != 0 and left_return_code is not None:
             desc = error.get_return_code_desc(left_return_code)
-            ExceptionInterface.add_base_error('left', left_return_code, desc, by)
             logger.error("left func_name={} called_by={} return_code={}, desc={}".format(func_name, by, left_return_code, desc))
         if right_return_code != 0 and right_return_code is not None:
             desc = error.get_return_code_desc(right_return_code)
-            ExceptionInterface.add_base_error('right', right_return_code, desc, by)
             logger.error("right func_name={} called_by={} return_code={}, desc={}".format(func_name, by, right_return_code, desc))
         return result
 

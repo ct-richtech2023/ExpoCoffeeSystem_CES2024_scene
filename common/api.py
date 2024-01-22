@@ -1,8 +1,9 @@
 import json
 import sys
 import time
-sys.path.append('..')
 
+sys.path.append('..')
+import threading
 import requests
 import urllib
 from loguru import logger
@@ -20,8 +21,9 @@ def module_base_url(module):
 
 
 class VisualDetectInterface:
-    # base_url = 'http://192.168.2.55:5002'
-    base_url = 'http://192.168.0.55:5002'  # scene url
+    base_url = 'http://192.168.2.55:5002'
+
+    # base_url = 'http://192.168.0.55:5002'  # scene url
 
     @classmethod
     def start_following(cls):
@@ -31,7 +33,6 @@ class VisualDetectInterface:
             logger.info('url={} result={}'.format(url, res.content))
         except Exception as e:
             pass
-
 
     @classmethod
     def stop_following(cls):
@@ -45,11 +46,6 @@ class VisualDetectInterface:
 
 class ASWServerInterface:
     base_url = 'https://adam.richtechrobotics.com:5001'
-    @classmethod
-    def _making_report(cls, drink):
-        url = "{}/drink/report".format(cls.base_url)
-        res = requests.post(url, json=drink)
-        logger.info('url={} drink={}, result={}'.format(url, drink.get('task_uuid'), res.content))
 
     @classmethod
     def making_report(cls, task_uuid, drink: dict):
@@ -71,7 +67,12 @@ class ASWServerInterface:
             'beans': beans,
             'extra': ' + '.join(extra)
         }
-        ASWServerInterface._making_report(drink)
+        url = "{}/drink/report".format(cls.base_url)
+        res = requests.post(url, json=drink)
+        logger.info('url={} drink={}, result={}'.format(url, drink.get('task_uuid'), res.content))
+        if res.status_code == 200:
+            return True
+        return False
 
     @classmethod
     def add_cleaning_history(cls, cleaning_history: dict):
@@ -89,23 +90,25 @@ class ASWServerInterface:
         url = "{}/action/clean".format(cls.base_url)
         res = requests.post(url, headers=headers, data=payload)
         logger.info('url={} params={}, result={}'.format(url, payload, res.content))
-
+        if res.status_code == 200:
+            return True
+        return False
 
 
 class CenterInterface:
     base_url = module_base_url('center')
 
-    @classmethod
-    def new_order(cls, order: dict, token: str = 'richtech'):
-        header = {'x-token': token}
-        url = "{}/center/order".format(cls.base_url)
-        res = requests.post(url, json=order, headers=header)
-        logger.info('url={} data={}, result={}'.format(url, order, res.content))
+    # @classmethod
+    # def new_order(cls, order: dict, token: str = 'richtech'):
+    #     header = {'x-token': token}
+    #     url = "{}/center/order".format(cls.base_url)
+    #     res = requests.post(url, json=order, headers=header)
+    #     logger.info('url={} data={}, result={}'.format(url, order, res.content))
 
     @classmethod
     def inner_new_order(cls, order: dict, token: str = 'richtech'):
         header = {'token': token}
-        url = "{}/center/inner_order".format(cls.base_url)
+        url = "{}/center/inner_new_order".format(cls.base_url)
         res = requests.post(url, json=order, headers=header)
         logger.info('url={} data={}, result={}'.format(url, order, res.content))
 
@@ -115,23 +118,6 @@ class CenterInterface:
         param = {'inner': 1}
         url = "{}/center/order/{}".format(cls.base_url, order_number)
         res = requests.get(url, params=param, headers=header)
-        logger.info('url={} order_number={}, result={}'.format(url, order_number, res.content))
-        return res.json()
-
-    @classmethod
-    def inner_update_order(cls, update_dict, token: str = 'richtech'):
-        header = {'token': token}
-        url = "{}/center/order/inner_update".format(cls.base_url)
-        res = requests.post(url, json=update_dict, headers=header)
-        logger.info('url={} data={}, result={}'.format(url, update_dict, res.content))
-        return res.json()
-
-    @classmethod
-    def inner_paid_order(cls, order_number, receipt_number, token: str = 'richtech'):
-        params = {'order_number': order_number, 'receipt_number': receipt_number}
-        header = {'token': token}
-        url = "{}/center/order/inner_paid".format(cls.base_url)
-        res = requests.post(url, params=params, headers=header)
         logger.info('url={} order_number={}, result={}'.format(url, order_number, res.content))
         return res.json()
 
@@ -199,16 +185,6 @@ class AudioInterface:
             pass
 
     @classmethod
-    def gtts2(cls, text, sync: bool = False):
-        params = {'text': text, 'sync': sync}
-        url = "{}/audio/gtts".format(cls.base_url)
-        try:
-            res = requests.post(url, params=params, timeout=3)
-            logger.info('url={} params={}, result={}'.format(url, params, res.content))
-        except Exception as e:
-            pass
-
-    @classmethod
     def weather(cls, lat=None, lon=None, units=None):
         params = {}
         if lat:
@@ -264,33 +240,6 @@ class CoffeeInterface:
         return False
 
     @classmethod
-    def exist_next(cls):
-        url = "{}/coffee/task/next".format(cls.base_url)
-        res = requests.get(url)
-        if res.status_code == 200:
-            logger.info('check if exist_next, result={}'.format(res.content))
-            if res.text != '""':
-                logger.info('exist waiting record with task_uuid={}'.format(res.content))
-                return True
-            else:
-                return False
-        else:
-            return False
-
-    @classmethod
-    def get_material(cls, name):
-        params = {'name': name}
-        params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-        url = "{}/coffee/material/get".format(cls.base_url)
-        res = requests.get(url, params=params)
-        if res.status_code == 400:
-            logger.warning('url={} result={}'.format(url, res.content))
-            return None
-        else:
-            logger.info('url={} result={}'.format(url, res.content))
-            return res.json()[0]
-
-    @classmethod
     def add_cleaning_history(cls, cleaning_dict, cleaning_method):
         url = "{}/coffee/clean_history?cleaning_method={}".format(cls.base_url, cleaning_method)
         res = requests.post(url, json=cleaning_dict)
@@ -298,17 +247,6 @@ class CoffeeInterface:
             logger.warning('url={} result={}'.format(url, res.content))
         else:
             logger.info('url={} result={}'.format(url, res.content))
-
-    @classmethod
-    def get_last_one_clean_history(cls):
-        url = "{}/coffee/clean_history/get_last_one".format(cls.base_url)
-        res = requests.get(url)
-        if res.status_code == 400:
-            logger.warning('url={} result={}'.format(url, res.content))
-            return None
-        else:
-            logger.info('url={} result={}'.format(url, res.content))
-            return res.json()
 
     @classmethod
     def get_machine_config(cls, name=None, machine=None):
@@ -322,7 +260,6 @@ class CoffeeInterface:
             params['name'] = name
         if machine:
             params['machine'] = machine
-        params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
         url = "{}/coffee/machine/get".format(cls.base_url)
         res = requests.get(url, params=params)
         if res.status_code == 400:
@@ -334,31 +271,27 @@ class CoffeeInterface:
 
     @classmethod
     def post_use(cls, name: str, quantity: int):
-        params = {'name': name, 'quantity': quantity}
-        url = "{}/coffee/material/use".format(cls.base_url)
-        res = requests.post(url, params=params, timeout=1)
-        if res.status_code == 400:
-            logger.warning('url={} result={}'.format(url, res.content))
-        else:
-            logger.info('url={} result={}'.format(url, res.content))
+        try:
+            params = {'name': name, 'quantity': quantity}
+            url = "{}/coffee/material/use".format(cls.base_url)
+            res = requests.post(url, params=params, timeout=1)
+            if res.status_code == 400:
+                logger.warning('url={} result={}'.format(url, res.content))
+            else:
+                logger.info('url={} result={}'.format(url, res.content))
+        except Exception as e:
+            logger.error(e)
 
     @classmethod
     def get_formula_composition(cls, formula, cup, formula_in_use=None):
         params = {'formula': formula, 'cup': cup, 'formula_in_use': formula_in_use}
-        # params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
         url = "{}/coffee/composition/get".format(cls.base_url)
         res = requests.get(url, params=params)
-        logger.info('url={} params={}, result={}'.format(url, params, res.json()))
-        return res.json()
-
-    @classmethod
-    def get_espresso_by_formula(cls, formula):
-        params = {'formula': formula}
-        # params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-        url = "{}/coffee/espresso/get".format(cls.base_url)
-        res = requests.get(url, params=params)
-        logger.info('url={} params={}, result={}'.format(url, params, res.json()))
-        return res.json()
+        if res.status_code == 400:
+            logger.warning('url={} params={} result={}'.format(url, params, res.content))
+        else:
+            logger.info('url={} params={} result={}'.format(url, params, res.content))
+            return res.json()
 
     @classmethod
     def choose_one_speech_text(cls, code):
@@ -368,24 +301,6 @@ class CoffeeInterface:
             res = requests.get(url, params=params)
             logger.info('url={} params={}, result={}'.format(url, params, res.content))
             return res.content
-        except ConnectionError:
-            pass
-
-    @classmethod
-    def bean_out(cls):
-        url = "{}/coffee/material/bean_out".format(cls.base_url)
-        try:
-            res = requests.post(url)
-            logger.info('url={}, result={}'.format(url, res.content))
-        except ConnectionError:
-            pass
-
-    @classmethod
-    def bean_reset(cls):
-        url = "{}/coffee/material/bean_reset".format(cls.base_url)
-        try:
-            res = requests.post(url)
-            logger.info('url={}, result={}'.format(url, res.content))
         except ConnectionError:
             pass
 
@@ -408,15 +323,6 @@ class CoffeeInterface:
             pass
 
     @classmethod
-    def get_all_machine_states(cls):
-        url = "{}/machine/get_all_machine_states".format(cls.base_url)
-        try:
-            res = requests.post(url)
-            logger.info('url={}, result={}'.format(url, res.content))
-        except ConnectionError:
-            pass
-
-    @classmethod
     def cancel_drink(cls, task_uuid):
         params = {'task_uuid': task_uuid}
         url = "{}/coffee/drink/cancel".format(cls.base_url)
@@ -426,32 +332,13 @@ class CoffeeInterface:
         else:
             logger.info('url={} result={}'.format(url, res.content))
 
-    # @classmethod
-    # def update_detect_by_name(cls, name=None, status=None, task_uuid=None):
-    #     """
-    #     get machine config by material name or machine
-    #     :param name: material name or machine
-    #     :return: dict, {}
-    #     """
-    #     params = {}
-    #     if name:
-    #         params['name'] = name
-    #     if status:
-    #         params['status'] = status
-    #     if status:
-    #         params['task_uuid'] = task_uuid
-    #     params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-    #     url = "{}/coffee/update_detect_by_name".format(cls.base_url)
-    #     res = requests.get(url, params=params)
-    #     if res.status_code == 400:
-    #         logger.warning('url={} result={}'.format(url, res.content))
-    #         return None
-    #     else:
-    #         logger.info('url={}'.format(url))
-    #         # return res.json()
-
     @classmethod
     def update_detect_by_name(cls, name=None, status=None, task_uuid=None):
+        update_detect_thread = threading.Thread(target=cls._update_detect_by_name, args=(name, status, task_uuid))
+        update_detect_thread.start()
+
+    @classmethod
+    def _update_detect_by_name(cls, name=None, status=None, task_uuid=None):
         """
         get machine config by material name or machine
         :param name: material name or machine
@@ -465,26 +352,19 @@ class CoffeeInterface:
         if task_uuid:  # Fixed the if condition here
             params['task_uuid'] = task_uuid
             logger.info(f'task_uuid{task_uuid}')
-
-        params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
         url = "{}/coffee/update_detect_by_name".format(cls.base_url)
-
         # Define the time interval and total duration
         interval = 5  # seconds
         total_duration = 60  # seconds
         start_time = time.time()
-
         while time.time() - start_time < total_duration:
-            res = requests.get(url, params=params)
+            res = requests.post(url, params=params)
             if res.status_code == 400:
                 logger.warning('url={} result={}'.format(url, res.content))
             else:
                 logger.info('url={}'.format(url))
-                # Return "ok" upon successful request
                 return "ok"
-
             time.sleep(interval)  # Wait for the specified interval before the next request
-
         return None  # Return None if the 60-second duration elapses without a successful request
 
     @classmethod
@@ -497,7 +377,6 @@ class CoffeeInterface:
         params = {}
         if name:
             params['name'] = name
-        params = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
         url = "{}/coffee/get_detect_all_data".format(cls.base_url)
         res = requests.get(url, params=params)
         if res.status_code == 400:
@@ -505,40 +384,6 @@ class CoffeeInterface:
             return None
         else:
             logger.info('url={}'.format(url))
-            return res.json()
-
-    @classmethod
-    def add_formula_duration(cls, formula, duration, left_status, right_status):
-        params = {'formula': formula, 'duration': duration, 'left_status': left_status, 'right_status': right_status}
-        url = "{}/coffee/add_formula_duration".format(cls.base_url)
-        res = requests.post(url, params=params)
-        if res.status_code == 400:
-            logger.warning('url={} result={}'.format(url, res.content))
-        else:
-            logger.info('url={} result={}'.format(url, res.content))
-
-    @classmethod
-    def get_formula_duration(cls, formula=None):
-        if formula:
-            params = {'formula': formula}
-        else:
-            params = {'formula': ''}
-        url = "{}/coffee/get_formula_duration".format(cls.base_url)
-        res = requests.get(url, params=params)
-        if res.status_code == 400:
-            logger.warning('url={} result={}'.format(url, res.content))
-        else:
-            # logger.info('url={} result={}'.format(url, res.content))
-            return res.json()
-
-    @classmethod
-    def get_idle_interaction(cls):
-        url = "{}/coffee/get_idle_interaction".format(cls.base_url)
-        res = requests.get(url)
-        if res.status_code == 400:
-            logger.warning('url={} result={}'.format(url, res.content))
-        else:
-            # logger.info('url={} result={}'.format(url, res.content))
             return res.json()
 
 
@@ -586,27 +431,18 @@ class AdamInterface:
     base_url = module_base_url('adam')
 
     @classmethod
-    def prepare_for(cls, formula):
-        params = {'formula': formula}
-        url = "{}/adam/prepare_for".format(cls.base_url)
-        res = requests.post(url, params=params)
-        logger.info('url={}, params={}, result={}'.format(url, params, res.json()))
+    def get_status(cls):
+        url = "{}/adam/status".format(cls.base_url)
+        res = requests.get(url)
+        logger.info('url={}, result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
-            raise AdamError()
+            return {}
+        else:
+            return res.json()
 
     @classmethod
-    def main_make(cls, formula, cup, sweetness, ice, milk):
-        params = {'formula': formula, 'cup': cup, 'sweetness': sweetness, 'ice': ice, 'milk': milk}
-        url = "{}/adam/main_make".format(cls.base_url)
-        res = requests.post(url, params=params)
-        logger.info('url={}, params={}, result={}'.format(url, params, res.json()))
-        if res.status_code and res.status_code != 200:
-            raise AdamError()
-
-    @classmethod
-    def make_cold_drink(cls, formula, sweetness, ice, milk, beans, receipt_number, task_uuid):
-        params = {'formula': formula, 'sweetness': sweetness, 'ice': ice, 'milk': milk, 'beans': beans,
-                  'receipt_number': receipt_number, 'task_uuid': task_uuid}
+    def make_cold_drink(cls, coffee_record):
+        params = {"coffee_record": coffee_record}
         url = "{}/adam/make_cold_drink".format(cls.base_url)
         res = requests.post(url, params=params)
         logger.info('url={}, result={}'.format(url, res.json()))
@@ -615,24 +451,14 @@ class AdamInterface:
             raise AdamError(msg)
 
     @classmethod
-    def make_hot_drink(cls, formula, sweetness, ice, milk, beans, receipt_number, task_uuid):
-        params = {'formula': formula, 'sweetness': sweetness, 'ice': ice, 'milk': milk, 'beans': beans,
-                  'receipt_number': receipt_number, 'task_uuid': task_uuid}
+    def make_hot_drink(cls, coffee_record):
+        params = {"coffee_record": coffee_record}
         url = "{}/adam/make_hot_drink".format(cls.base_url)
         res = requests.post(url, params=params)
         logger.info('url={}, result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             msg = res.content if res.content else ''
             raise AdamError(msg)
-
-    @classmethod
-    def pour(cls, action):
-        params = {'action': action}
-        url = "{}/adam/pour".format(cls.base_url)
-        res = requests.post(url, params=params)
-        logger.info('url={}, params={}, result={}'.format(url, params, res.json()))
-        if res.status_code and res.status_code != 200:
-            raise AdamError()
 
     @classmethod
     def standby_pose(cls):
@@ -651,10 +477,10 @@ class AdamInterface:
             raise AdamError()
 
     @classmethod
-    def change_adam_status(cls, status):
+    def change_adam_status(cls, status, timeout=None):
         params = {'status': status}
         url = "{}/adam/change_adam_status".format(cls.base_url)
-        res = requests.post(url, params=params)
+        res = requests.post(url, params=params, timeout=timeout)
         logger.info('url={}, result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             raise AdamError()
@@ -664,14 +490,6 @@ class AdamInterface:
         params = {'status': status}
         url = "{}/adam/change_adam_status_idle".format(cls.base_url)
         res = requests.post(url, params=params)
-        logger.info('url={}, result={}'.format(url, res.json()))
-        if res.status_code and res.status_code != 200:
-            raise AdamError()
-
-    @classmethod
-    def release_ice(cls):
-        url = "{}/adam/release_ice".format(cls.base_url)
-        res = requests.post(url)
         logger.info('url={}, result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             raise AdamError()
@@ -699,19 +517,10 @@ class AdamInterface:
         return res.content
 
     @classmethod
-    def dance(cls):
-        url = "{}/adam/dance".format(cls.base_url)
-        res = requests.post(url)
-        logger.info('url={} result={}'.format(url, res.json()))
-        if res.status_code and res.status_code != 200:
-            raise AdamError()
-        return res.json()
-
-    @classmethod
-    def random_dance(cls, choice):
+    def random_dance(cls, choice, timeout):
         params = {'choice': choice}
         url = "{}/adam/random_dance".format(cls.base_url)
-        res = requests.post(url, params=params)
+        res = requests.post(url, params=params, timeout=timeout)
         logger.info('url={} result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             raise AdamError()
@@ -725,30 +534,12 @@ class AdamInterface:
         if res.status_code and res.status_code != 200:
             raise AdamError()
         return res.json()
-    
+
     @classmethod
     def zero(cls, idle):
         params = {'idle': idle}
         url = "{}/adam/zero".format(cls.base_url)
         res = requests.post(url, params=params)
-        logger.info('url={} result={}'.format(url, res.json()))
-        if res.status_code and res.status_code != 200:
-            raise AdamError()
-        return res.json()
-
-    @classmethod
-    def stop_CountdownTime(cls):
-        url = "{}/adam/stop_CountdownTime".format(cls.base_url)
-        res = requests.post(url)
-        logger.info('url={} result={}'.format(url, res.json()))
-        if res.status_code and res.status_code != 200:
-            raise AdamError()
-        return res.json()
-
-    @classmethod
-    def stop_followCountdownTimer(cls):
-        url = "{}/adam/stop_followCountdownTimer".format(cls.base_url)
-        res = requests.post(url)
         logger.info('url={} result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             raise AdamError()

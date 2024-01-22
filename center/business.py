@@ -2,7 +2,6 @@ import threading
 import time
 
 from loguru import logger
-from order import GetOrderThread
 from requests import ConnectionError
 from queue import Queue
 
@@ -46,7 +45,6 @@ class TaskThread(threading.Thread):
                                                           task_record.create_time)
                             if result:
                                 task_record.status = TaskStatus.waiting
-                                # self.db_session.commit()
                             sended = True
                         except ConnectionError:
                             sended = False
@@ -67,15 +65,6 @@ class Center:
     Instance = None
 
     def __init__(self):
-        # try:
-        #     adam_config = conf.get_machine_config().get('adam')
-        #     self.get_order_thread = GetOrderThread(adam_config.get('sn'))
-        # except Exception as e:
-        #     logger.error('init get order thread error, msg={}'.format(str(e)))
-        #     exit(-1)
-        # self.get_order_thread.setDaemon(True)
-        # self.get_order_thread.start()
-
         order_queue = Queue()
         try:
             adam_config = conf.get_machine_config().get('adam')

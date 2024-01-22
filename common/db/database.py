@@ -37,7 +37,7 @@ class MySuperContextManager:
             # logger.warning('try commit db={}'.format(self.db))
             self.db.commit()
         except Exception as e:
-            logger.debug('try error, rollback, db={}'.format(self.db))
+            logger.error(f'try error, rollback, db={self.db} error={e}')
             self.db.rollback()
         # logger.debug('close db={}'.format(self.db))
         self.db.close()

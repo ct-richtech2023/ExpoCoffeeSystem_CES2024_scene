@@ -95,17 +95,6 @@ class Audio:
         else:
             self.tts_subprocess.text_to_speech(text)
 
-    # def gtts(self, text: str, sync=True):
-    #     logger.info('gtts text={}'.format(text))
-    #     self.generate_mp3(text)
-    #     if self.gtts_thread and self.gtts_thread.is_alive():
-    #         self.gtts_thread.join()
-    #     else:
-    #         self.gtts_thread = Thread(target=play_voice)
-    #
-    #     self.gtts_thread.start()
-    #     if sync:
-    #         self.gtts_thread.join()
 
     def gtts(self, text, level=1, sync=False):
         logger.info('gtts text={}, level={}'.format(text, level))

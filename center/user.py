@@ -36,7 +36,7 @@ router = APIRouter(
 #         return PlainTextResponse(status_code=400, content=str(e))
 
 
-@router.post("/register", dependencies=[])
+@router.post("/register", summary="本地注册", dependencies=[])
 def signup(user_msg: center_schemas.RegisterRequest, db: Session = Depends(get_db)):
     try:
         hashed_password = user_handler.get_password_hash(user_msg.password)
@@ -50,7 +50,8 @@ def signup(user_msg: center_schemas.RegisterRequest, db: Session = Depends(get_d
             detail=UserMsg.register_error
         )
 
-@router.post("/local/login",  dependencies=[])
+
+@router.post("/local/login", summary="本地登录", dependencies=[])
 def local_login(user_msg: center_schemas.LocalLoginRequest, db: Session = Depends(get_db)):
     try:
         login_msg = user_handler.check_user(db, user_msg.sn, user_msg.password)
@@ -71,22 +72,22 @@ def local_login(user_msg: center_schemas.LocalLoginRequest, db: Session = Depend
             detail=str(e)
         )
 
-@router.post("/login", response_model=center_schemas.LoginResponse, dependencies=[])
-def login_for_access_token(user_msg: center_schemas.LoginRequest):
-    try:
-        login_msg = user_handler.check_login(user_msg.name, user_msg.password)
-        return login_msg
-    except Exception as e:
-        raise HTTPException(
-            status_code=401,
-            detail=str(e)
-        )
+# @router.post("/login", response_model=center_schemas.LoginResponse, dependencies=[])
+# def login_for_access_token(user_msg: center_schemas.LoginRequest):
+#     try:
+#         login_msg = user_handler.check_login(user_msg.name, user_msg.password)
+#         return login_msg
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=401,
+#             detail=str(e)
+#         )
 
-    # user_msg = get_square_msg(login_msg.get('customer_id'))
-    # if not user_msg:
-    #     raise HTTPException(
-    #         status_code=401,
-    #         detail=UserMsg.lack_square_msg.format(login_msg.get('id'))
-    #     )
-    # login_msg.update(user_msg)
-    # return login_msg
+# user_msg = get_square_msg(login_msg.get('customer_id'))
+# if not user_msg:
+#     raise HTTPException(
+#         status_code=401,
+#         detail=UserMsg.lack_square_msg.format(login_msg.get('id'))
+#     )
+# login_msg.update(user_msg)
+# return login_msg

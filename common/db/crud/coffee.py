@@ -19,21 +19,6 @@ from common.db.database import MySuperContextManager
 import random
 
 
-
-def rollback_on_exception(func):
-    def wrapper(*args, **kwargs):
-        db = args[0]  # Assuming the first argument is the database connection
-        try:
-            result = func(*args, **kwargs)
-            db.commit()  # Commit changes if everything is successful
-            return result
-        except Exception as e:
-            db.rollback()  # Rollback changes if an exception occurs
-            raise DBError(e)
-
-    return wrapper
-
-
 def cancel_drink_by_task_uuid(db, task_uuid):
     if task_uuid:
         record = db.query(coffee_table.Coffee).filter(coffee_table.Coffee.task_uuid == task_uuid).first()
@@ -50,12 +35,6 @@ def add_cleaning_history(db, cleaning_dict: dict, cleaning_method: int):
             history = coffee_table.AddCleaningHistory(**{"name": key, "cleaning_method": cleaning_method,
                                                          "timelength": value})
             db.add(history)
-
-
-def get_last_one_cleaning_history(db):
-    if cleaning_history := db.query(coffee_table.AddCleaningHistory).order_by(
-            coffee_table.AddCleaningHistory.id.desc()).first():
-        return cleaning_history.to_dict()
 
 
 def update_detect_by_name(db, name, status=None, task_uuid=None):
@@ -206,6 +185,19 @@ def get_material(db, name=None, in_use=None, material_id=None) -> List[coffee_ta
     materials = db.query(coffee_table.MaterialCurrent).filter(*conditions).order_by(
         coffee_table.MaterialCurrent.id.asc()).all()
     return materials
+
+
+def get_milk_material(db, in_use=1) -> dict:
+    conditions = []
+    conditions.append(coffee_table.MaterialCurrent.type._in("Plant-based milk", "Milk"))
+    if in_use is not None:
+        conditions.append(coffee_table.MaterialCurrent.in_use == in_use)
+    materials = db.query(coffee_table.MaterialCurrent).filter(*conditions).order_by(
+        coffee_table.MaterialCurrent.id.asc()).all()
+    milk_dict = {}
+    for material in materials:
+        milk_dict[material.type] = material.to_dict()
+    return milk_dict
 
 
 def use_material(db, name, quantity) -> coffee_table.MaterialCurrent:
@@ -368,14 +360,6 @@ def insert_menu_with_composition(db, menu_data: dict):
         "img": menu_data["img"]
     }
 
-    coffee_composition = {
-        "formula": menu_data["name"],
-        "cup": menu_data["cup"],
-        "material": menu_data["name"],
-        "count": 1,
-        "extra": ""
-    }
-
     cup_composition = {
         "formula": menu_data["name"],
         "cup": menu_data["cup"],
@@ -429,12 +413,18 @@ def insert_menu_with_composition(db, menu_data: dict):
     if composition_data:
         # 创建配方记录并插入到composition表中
         for composition in composition_data:
+            try:
+                extra = ""
+                if composition["extra"]:
+                    extra = json.loads(composition["extra"])
+            except Exception as e:
+                raise DBError(f'json.loads(composition["extra"]) {e} and {composition["extra"]}')
             composition_attributes = {
                 "formula": menu_data["name"],
                 "cup": menu_data["cup"],
                 "material": composition["material"],
                 "count": composition["count"],
-                "extra": composition["extra"] if composition["extra"] else None
+                "extra": composition["extra"] if extra else None
                 # "extra": json.dumps(composition["extra"]) if composition["extra"] else None
             }
             composition_record = coffee_table.Composition(**composition_attributes)
@@ -464,8 +454,7 @@ def insert_menu_with_composition(db, menu_data: dict):
                     foam_materialCurrent = coffee_table.MaterialCurrent(**foam_material)
                     db.add(foam_materialCurrent)
                     # db.commit()
-            if composition["extra"]:
-                extra = json.loads(composition["extra"])
+            if extra:
                 if not extra.get("foam_composition", {}):
                     first_key = list(extra.keys())[0]
                     first_value = extra[first_key]
@@ -519,6 +508,7 @@ def insert_menu_with_composition(db, menu_data: dict):
 
     db.commit()
 
+
 def update_menu_with_composition(db, menu_data: dict):
     # 解析菜单数据
     formula_id = menu_data.get("id")
@@ -535,7 +525,8 @@ def update_menu_with_composition(db, menu_data: dict):
     formula = db.query(coffee_table.Formula).filter(coffee_table.Formula.id == formula_id).first()
 
     if not formula:
-        return None
+        # return None
+        raise DBError('not formula')
 
     if formula.name != formula_name:
         old_formula = get_formula_ilike_name(db, formula_name)
@@ -566,8 +557,6 @@ def update_menu_with_composition(db, menu_data: dict):
         }
     composition_data.append(cup_composition)
 
-
-
     first_value = None
     composition_id_list = []
     for composition in composition_data:
@@ -575,8 +564,7 @@ def update_menu_with_composition(db, menu_data: dict):
         if composition_id:
             composition_id_list.append(composition_id)
             composition["formula"] = formula_name
-            composition_record = db.query(coffee_table.Composition).filter(
-                coffee_table.Composition.id == composition_id).first()
+            composition_record = db.query(coffee_table.Composition).filter(coffee_table.Composition.id == composition_id).first()
             if composition_record:
                 # 更新配方属性
                 for attr, value in composition.items():
@@ -863,17 +851,12 @@ def get_composition_by_formula(db, formula, cup, formula_in_use=None) -> dict:
             material_data = dict(count=composition.count, left=material.left, type=material.type,
                                  machine=material.machine, in_use=material.in_use)
             if material.machine == 'foam_machine':
-                try:
-                    material_data['extra'] = json.loads(composition.extra)
-                except Exception:
-                    pass
+                material_data['extra'] = json.loads(composition.extra)
             if material.machine == 'coffee_machine':
-                try:
-                    material_data['extra'] = json.loads(composition.extra)
-                except Exception:
-                    pass
+                material_data['extra'] = json.loads(composition.extra)
                 material_data['coffee_make'] = get_espresso_by_formula(db, formula)
             return_data[composition.material] = material_data
+    return_data["milk_dict"] = get_milk_material(db)
     return return_data
 
 
@@ -895,36 +878,6 @@ def delete_composition(db, formula, material=None):
 
 
 # Machine_Config
-def _check_config(machine_config):
-    pass
-
-
-def add_machine_config(db, new_dict):
-    machine_config = coffee_table.MachineConfig(**new_dict)
-    if machine_config.gpio is not None:
-        if machine_config.speed is None or machine_config.delay_time is None or machine_config.type is None:
-            raise DBError('speed or delay_time or type is necessary with gpio')
-
-    material_name = machine_config.name.split('_')[0]
-    material_obj = get_material(db, material_name)
-    if not material_obj:
-        db.rollback()
-        raise DBError('no material names={}, please check again'.format(material_name))
-    material_obj = material_obj[0]
-    if material_obj.machine != machine_config.machine:
-        raise DBError('material {}\'s machine is {} while machine_config\'s machine is {}'.format(material_name,
-                                                                                                  material_obj.machine,
-                                                                                                  machine_config.machine))
-    old_machine_config = db.query(coffee_table.MachineConfig).filter_by(name=machine_config.name).first()
-    if old_machine_config:
-        db.rollback()
-        raise DBError(
-            'machine_config with name={} has already exist, please update/delete it'.format(machine_config.name))
-    db.add(machine_config)
-    db.commit()
-    logger.info('add_machine_config, dict={}'.format(new_dict))
-
-
 def get_machine_config(db, name=None, machine=None) -> List[coffee_table.MachineConfig]:
     conditions = []
     if name:
@@ -933,17 +886,6 @@ def get_machine_config(db, name=None, machine=None) -> List[coffee_table.Machine
         conditions.append(coffee_table.MachineConfig.machine == machine)
     configs = db.query(coffee_table.MachineConfig).filter(*conditions).all()
     return configs
-
-
-def update_machine_config_by_name(db, name, update_dict):
-    gpio_config = db.query(coffee_table.MachineConfig).filter_by(name=name).first()
-    if gpio_config:
-        for k, v in update_dict.items():
-            if v != None:
-                setattr(gpio_config, k, v)
-        # db.commit()
-    else:
-        raise DBError('there are no gpio config with name={}'.format(name))
 
 
 # Espresso
@@ -966,43 +908,6 @@ def choose_one_speech_text(db, code: str):
         return random.choice(speech_texts).text
     else:
         return ''
-
-
-def get_all_text(db, code: str = None):
-    conditions = []
-    if code:
-        conditions.append(coffee_table.SpeechText.code == code)
-    speech_texts = db.query(coffee_table.SpeechText).filter(*conditions).all()
-    result = []
-    for text in speech_texts:
-        result.append(text.to_dict())
-    return result
-
-
-def add_text(db, text, code):
-    old_text = db.query(coffee_table.SpeechText).filter_by(code=code, text=text).first()
-    if old_text:
-        return 'ok'
-    text = coffee_table.SpeechText(code=code, text=text)
-    db.add(text)
-    # db.commit()
-    logger.info('add_text, code={}, text{}'.format(code, text))
-    return 'ok'
-
-
-def update_text_by_id(db, text_id: int, code: str = None, text: str = None):
-    old_text = db.query(coffee_table.SpeechText).filter_by(id=text_id).first()
-    if old_text:
-        if code:
-            old_text.code = code
-        if text:
-            old_text.text = text
-        # db.commit()
-
-
-def delete_text_by_id(db, id: int):
-    db.query(coffee_table.SpeechText).filter_by(id=id).delete()
-    # db.commit()
 
 
 def get_machine_states_by_id(db, return_id=None):
@@ -1071,38 +976,6 @@ def update_cleaning_history(db, id):
     if record:
         record.flag = 1
         db.add(record)
-
-
-# @rollback_on_exception
-def add_formula_duration(db, formula, duration, left_status, right_status):
-    formula_duration = coffee_table.FormulaDuration(formula=formula, duration=duration, left_status=left_status, right_status=right_status)
-    db.add(formula_duration)
-
-
-# @rollback_on_exception
-def get_formula_duration(db, formula=None):
-    record_list = []
-    if formula:
-        if records := db.query(coffee_table.FormulaDuration).filter(coffee_table.FormulaDuration.formula == formula).order_by(
-                coffee_table.FormulaDuration.id.asc()).all():
-            for record in records:
-                record_list.append(record.to_dict())
-            return record_list
-    elif records := db.query(coffee_table.FormulaDuration).order_by(coffee_table.FormulaDuration.id.asc()).all():
-        for record in records:
-            record_list.append(record.to_dict())
-        return record_list
-
-
-def get_idle_interaction(db):
-    record_list = []
-    if records := db.query(coffee_table.IdleInteraction).order_by(
-            coffee_table.IdleInteraction.id.asc()).all():
-        for record in records:
-            record_list.append(record.to_dict())
-        return record_list
-    else:
-        return record_list
 
 
 def init_detect(db):

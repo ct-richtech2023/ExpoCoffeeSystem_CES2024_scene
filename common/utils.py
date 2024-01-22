@@ -6,12 +6,22 @@ import math
 import os
 import shlex
 import subprocess
+import time
 
 import yaml
 from loguru import logger
 
 PROC_1_NAME = None
 PCM_NUMBER = None
+
+
+def reduce_sound():
+    for i in range(100, -1, -1):
+        os.system(f"amixer set PCM {i}%")
+        time.sleep(0.05)
+
+def recover_sound():
+    os.system(f"amixer set PCM 100%")
 
 
 def get_current_func_name():

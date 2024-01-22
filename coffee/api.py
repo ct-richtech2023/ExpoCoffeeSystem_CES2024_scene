@@ -30,7 +30,36 @@ router = APIRouter(
 )
 
 
-@router.post("/make", description="control coffee machine to make drink")
+@router.post("/test_coffee", summary="测试coffee模块", description="test coffee")
+def test_coffee(coffee: Business = Depends(get_coffee_obj), db: Session = Depends(get_db)):
+    try:
+        coffee_dict = {}
+        task_uuid = '923e314f-1723-3b8c-9f23-f93903455263'
+        coffee_crud.delete_coffee_task(task_uuid)
+        new_dict = {
+            'task_uuid': '923e314f-1723-3b8c-9f23-f93903455263',
+            'receipt_number': 'TEST',
+            'formula': 'Latte',
+            'cup': 'Medium Cup',
+            'sweetness': 100,
+            'ice': 'no_ice',
+            'milk': '',
+            'beans': '',
+            'discount': 0,
+            'unit_money': 0,
+            'status': define.TaskStatus.completed
+        }
+        coffee_crud.add_new_coffee_task(db, new_dict)
+        coffee_dict['database'] = 'ok'
+        coffee_dict['coffee_dict'] = 'ok'
+        coffee_dict['make_thread'] = coffee.make_coffee_thread.test_run_flag
+        return coffee_dict
+    except Exception as e:
+        logger.error("make failed, traceback={}".format(traceback.format_exc()))
+        return JSONResponse(status_code=400, content=str(e))
+
+
+@router.post("/make", summary="饮品排队制作接口", description="control coffee machine to make drink")
 def make(formula: str, sweetness: int, ice: define.SUPPORT_ICE_TYPE,
          milk: str, beans: str, discount: float, unit_money: float, cup=define.CupSize.medium_cup,
          task_uuid: UUID = None, receipt_number: str = '', create_time=None,
@@ -80,51 +109,22 @@ def make(formula: str, sweetness: int, ice: define.SUPPORT_ICE_TYPE,
         return JSONResponse(status_code=400, content=str(e))
 
 
-@router.post("/test_coffee", description="test coffee")
-def test_coffee(coffee: Business = Depends(get_coffee_obj), db: Session = Depends(get_db)):
-    try:
-        coffee_dict = {}
-        task_uuid = '923e314f-1723-3b8c-9f23-f93903455263'
-        coffee_crud.delete_coffee_task(task_uuid)
-        new_dict = {
-            'task_uuid': '923e314f-1723-3b8c-9f23-f93903455263',
-            'receipt_number': 'TEST',
-            'formula': 'Latte',
-            'cup': 'Medium Cup',
-            'sweetness': 100,
-            'ice': 'no_ice',
-            'milk': '',
-            'beans': '',
-            'discount': 0,
-            'unit_money': 0,
-            'status': define.TaskStatus.completed
-        }
-        coffee_crud.add_new_coffee_task(db, new_dict)
-        coffee_dict['database'] = 'ok'
-        coffee_dict['coffee_dict'] = 'ok'
-        coffee_dict['make_thread'] = coffee.make_coffee_thread.test_run_flag
-        return coffee_dict
-    except Exception as e:
-        logger.error("make failed, traceback={}".format(traceback.format_exc()))
-        return JSONResponse(status_code=400, content=str(e))
-
-
-@router.get("/current_task_status", description="current task status")
+@router.get("/current_task_status", summary="获取当前任务的状态", description="current task status")
 def current_task_status(coffee: Business = Depends(get_coffee_obj)):
     return coffee.make_coffee_thread.current_task_status
 
 
-@router.post("/pause_making", description="current task status")
+@router.post("/pause_making", summary="暂停排队制作", description="pause making")
 def pause_making(coffee: Business = Depends(get_coffee_obj)):
     return coffee.make_coffee_thread.pause()
 
 
-@router.post("/proceed_making", description="current task status")
+@router.post("/proceed_making", summary="继续排队制作", description="proceed making")
 def proceed_making(coffee: Business = Depends(get_coffee_obj)):
     return coffee.make_coffee_thread.proceed()
 
 
-@router.get("/task/next", description="next waiting coffee record")
+@router.get("/task/next", summary="获取下一条等待的任务", description="next waiting coffee record")
 def get_next(db: Session = Depends(get_db)):
     next_uuid = coffee_crud.exist_next_record(db)
     if next_uuid:
@@ -133,12 +133,12 @@ def get_next(db: Session = Depends(get_db)):
         return ''
 
 
-@router.put("/task/failed", description="set one task failed")
+@router.put("/task/failed", summary="设置指定任务失败", description="set one task failed")
 def task_failed(task_uuid: UUID = None, coffee: Business = Depends(get_coffee_obj)):
     return coffee.set_task_uuid_failed(task_uuid)
 
 
-@router.post("/drink/cancel", description="cancel drink")
+@router.post("/drink/cancel", summary="取消一杯等待中的饮品", description="cancel drink")
 def cancel_drink(task_uuid: UUID = None, db: Session = Depends(get_db)):
     try:
         if coffee_crud.cancel_drink_by_task_uuid(db, task_uuid):
@@ -147,17 +147,17 @@ def cancel_drink(task_uuid: UUID = None, db: Session = Depends(get_db)):
         return JSONResponse(status_code=400, content=str(e))
 
 
-@router.put("/stop", description="stop all action")
+@router.put("/stop", summary="停止制作线程和adam动作", description="stop all action")
 def stop(coffee: Business = Depends(get_coffee_obj)):
     return coffee.stop()
 
 
-@router.put("/resume", description="resume to work")
+@router.put("/resume", summary="恢复工作，重启一个MakeThread", description="resume to work")
 def resume(coffee: Business = Depends(get_coffee_obj)):
     return coffee.resume()
 
 
-@router.post("/material/add", description="add a new material")
+@router.post("/material/add", summary="增加一种物料", description="add a new material")
 def new_material(material: NewMaterialCurrent, db: Session = Depends(get_db)):
     logger.info(f"into new_material:{material.dict()}")
     material_dict = material.dict()
@@ -183,7 +183,7 @@ def new_material(material: NewMaterialCurrent, db: Session = Depends(get_db)):
     return 'ok'
 
 
-@router.get("/material/get", description="get material by name or get all material")
+@router.get("/material/get", summary="根据指定条件查询物料，可以查询全部", description="get material by name or get all material")
 def get_material(name=None, in_use: Literal['0', '1'] = None, db: Session = Depends(get_db)):
     return_data = []
     in_use = in_use if in_use is None else int(in_use)
@@ -191,13 +191,11 @@ def get_material(name=None, in_use: Literal['0', '1'] = None, db: Session = Depe
     for material in materials:
         dd = material.to_dict()
         dd["left"] = int(dd["left"])
-        # if dd['name'] == 'cold_water':
-        #     dd['name'] = 'green_tea_syrup'
         return_data.append(dd)
     return return_data
 
 
-@router.post("/material/update", description="update a material")
+@router.post("/material/update", summary="根据id更新一种物料，只保留要修改的字段", description="update a material")
 def update_material_by_id(update: UpdateMaterialCurrent, db: Session = Depends(get_db)):
     try:
         logger.debug(update.dict())
@@ -207,7 +205,7 @@ def update_material_by_id(update: UpdateMaterialCurrent, db: Session = Depends(g
     return 'ok'
 
 
-@router.post("/material/use", description="update a material")
+@router.post("/material/use", summary="减少物料剩余量, 当减少后的剩余量小于警戒值时会进行语音播报", description="update a material")
 async def use_material(name: str, quantity: float = 0, db: Session = Depends(get_db)):
     try:
         material = coffee_crud.use_material(db, name, quantity)
@@ -218,57 +216,13 @@ async def use_material(name: str, quantity: float = 0, db: Session = Depends(get
     return 'ok'
 
 
-@router.post("/material/bean_out", description="set coffee bean left 0")
-async def bean_out(db: Session = Depends(get_db)):
-    try:
-        material = coffee_crud.get_material(db, 'bean')
-        if material:
-            material[0].left = 0
-            db.commit()
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return 'ok'
-
-
-@router.post("/material/bean_reset", description="reset count of coffee bean")
-async def bean_reset(db: Session = Depends(get_db)):
-    try:
-        material = coffee_crud.get_material(db, 'bean')
-        if material:
-            material[0].left = material[0].capacity
-            db.commit()
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return 'ok'
-
-
-# @router.post("/material/off_use", description=" off_use a material")
-# def off_use(name: str):
-#     update_dict = dict(in_use=define.Constant.IN_USE.not_in_use)
-#     try:
-#         milktea_crud.update_material(db, name, update_dict)
-#     except DBError as e:
-#         return JSONResponse(status_code=400, content={'error': str(e)})
-#     return 'ok'
-#
-#
-# @router.post("/material/on_use", description="on_use a material")
-# def on_use(name: str):
-#     update_dict = dict(in_use=define.Constant.IN_USE.in_use)
-#     try:
-#         milktea_crud.update_material(db, name, update_dict)
-#     except DBError as e:
-#         return JSONResponse(status_code=400, content={'error': str(e)})
-#     return 'ok'
-
-
-@router.post("/material/reset", description="reset a material")
+@router.post("/material/reset", summary="补充物料，剩余量恢复为容量", description="reset a material")
 async def on_use(names: List[str], db: Session = Depends(get_db)):
     coffee_crud.reset_material(db, names)
     return 'ok'
 
 
-@router.post("/formula/add", description="add a new formula")
+@router.post("/formula/add", summary="菜单上增加一项饮品", description="add a new formula")
 def new_formula(formula: NewFormula, db: Session = Depends(get_db)):
     logger.info(f"into new_formula{formula.dict()}")
     formula_dict = formula.dict()
@@ -286,16 +240,17 @@ def new_formula(formula: NewFormula, db: Session = Depends(get_db)):
         coffee_crud.insert_menu_with_composition(db, formula_dict)
     except DBError as e:
         os.remove(new_file_path)
+        logger.error(traceback.format_exc())
         logger.error(e)
         return JSONResponse(status_code=400, content={'error': str(e)})
     return 'ok'
 
 
-@router.post("/formula/update", description="update formula")
+@router.post("/formula/update", summary="更新菜单", description="update formula")
 def update_formula(formula: NewFormula, db: Session = Depends(get_db)):
-    logger.info(f"into update_formula{formula.dict()}")
+    logger.info(f"into update_formula : {formula.dict()}")
     coffee_machine = formula.dict().get("coffee_machine", {})
-    drink_num = formula.dict().get("drink_num",{})
+    drink_num = formula.dict().get("drink_num", {})
     if coffee_machine != 0 and drink_num == 0:
         return JSONResponse(status_code=400, content={'error': "drink_num cannot be 0"})
     try:
@@ -306,7 +261,7 @@ def update_formula(formula: NewFormula, db: Session = Depends(get_db)):
     return 'ok'
 
 
-@router.get("/formula/get", description="get formula")
+@router.get("/formula/get", summary="查询菜单", description="get formula")
 def get_formula(name=None, cup: define.SUPPORT_CUP_SIZE_TYPE = None,
                 in_use: Literal['0', '1'] = None, db: Session = Depends(get_db)):
     in_use = in_use if in_use is None else int(in_use)
@@ -314,7 +269,7 @@ def get_formula(name=None, cup: define.SUPPORT_CUP_SIZE_TYPE = None,
     return return_data
 
 
-@router.get("/formula/image/download", description="")
+@router.get("/formula/image/download", summary="下载菜单图片", description="")
 async def download(path: str):
     logger.info('download path={}'.format(path))
     if os.path.exists(path):
@@ -323,7 +278,7 @@ async def download(path: str):
     return JSONResponse(status_code=400, content={'error': 'file {} not exist'.format(path)})
 
 
-@router.post("/formula/image/upload", description="")
+@router.post("/formula/image/upload", summary="上传菜单图片 1: formula img; 2: material img", description="upload 1: formula 2: materials")
 async def upload(type: int, img: UploadFile, id: int = None, db: Session = Depends(get_db)):
     logger.info('upload')
     if str(type) == '1':
@@ -371,7 +326,7 @@ async def upload(type: int, img: UploadFile, id: int = None, db: Session = Depen
     return JSONResponse(status_code=400, content={'error': 'error id'})
 
 
-@router.post("/formula/off_use", description=" off_use a material")
+@router.post("/formula/off_use", summary="下架饮品", description=" off_use a material")
 def formula_off_use(name: str, cup: define.SUPPORT_CUP_SIZE_TYPE, db: Session = Depends(get_db)):
     update_dict = dict(in_use=define.Constant.InUse.not_in_use)
     try:
@@ -381,7 +336,7 @@ def formula_off_use(name: str, cup: define.SUPPORT_CUP_SIZE_TYPE, db: Session = 
     return 'ok'
 
 
-@router.post("/formula/on_use", description="on_use a material")
+@router.post("/formula/on_use", summary="上架饮品", description="on_use a material")
 def formula_on_use(name: str, cup: define.SUPPORT_CUP_SIZE_TYPE, db: Session = Depends(get_db)):
     update_dict = dict(in_use=define.Constant.InUse.in_use)
     try:
@@ -391,7 +346,7 @@ def formula_on_use(name: str, cup: define.SUPPORT_CUP_SIZE_TYPE, db: Session = D
     return 'ok'
 
 
-@router.delete("/formula/delete", description="delete a formula")
+@router.delete("/formula/delete", summary="删除饮品", description="delete a formula")
 def delete_formula(formula_id: int, db: Session = Depends(get_db)):
     try:
         if coffee_crud.delete_formula_in_use(db, formula_id):
@@ -400,13 +355,16 @@ def delete_formula(formula_id: int, db: Session = Depends(get_db)):
         return JSONResponse(status_code=510, content={'error': 'Delete failed'})
 
 
-@router.get("/composition/get", description="get composition of a formula")
+@router.get("/composition/get", summary="获取配方信息", description="get composition of a formula")
 def get(formula: str, cup: define.SUPPORT_CUP_SIZE_TYPE, formula_in_use: Literal['0', '1'] = None, db: Session = Depends(get_db)):
-    composition = coffee_crud.get_composition_by_formula(db, formula, cup, formula_in_use)
+    try:
+        composition = coffee_crud.get_composition_by_formula(db, formula, cup, formula_in_use)
+    except Exception as e:
+        return JSONResponse(status_code=400, content={'error': str(e)})
     return composition
 
 
-@router.post("/composition/update", description="update count in composition")
+@router.post("/composition/update", summary="更新配方中物料的使用数量", description="update count in composition")
 def get(formula: str, cup: define.SUPPORT_CUP_SIZE_TYPE,
         material: str, count, db: Session = Depends(get_db)):
     try:
@@ -416,16 +374,7 @@ def get(formula: str, cup: define.SUPPORT_CUP_SIZE_TYPE,
     return 'ok'
 
 
-@router.post("/machine/add", description="add a new formula")
-def new_machine(machine: NewMachineConfig, db: Session = Depends(get_db)):
-    try:
-        coffee_crud.add_machine_config(db, machine.dict())
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return 'ok'
-
-
-@router.get("/machine/get", description="get gpio config")
+@router.get("/machine/get", summary="查询硬件机器信息", description="get machine config")
 def get(name: str = None, machine: str = None, db: Session = Depends(get_db)):
     return_data = []
     configs = coffee_crud.get_machine_config(db, name, machine)
@@ -433,61 +382,7 @@ def get(name: str = None, machine: str = None, db: Session = Depends(get_db)):
         return_data.append(config.to_dict())
     return return_data
 
-
-@router.post("/machine/update", description="update gpio config")
-def update_gpio(name: str, update: UpdateGpioConfig, db: Session = Depends(get_db)):
-    try:
-        coffee_crud.update_machine_config_by_name(db, name, update.dict())
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return 'ok'
-
-
-@router.get("/speech/add", description="add one text into database")
-def text(text: str, code: str, db: Session = Depends(get_db)):
-    try:
-        return coffee_crud.add_text(db, text, code)
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-
-
-@router.get("/speech/random", description="get one text from database")
-def text(code: str, db: Session = Depends(get_db)):
-    try:
-        text = coffee_crud.choose_one_speech_text(db, code)
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return text
-
-
-@router.get("/speech/get_all", description="get all text by code")
-def get_all_texts(code=None, db: Session = Depends(get_db)):
-    try:
-        texts = coffee_crud.get_all_text(db, code)
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return texts
-
-
-@router.post("/speech/update/", description="update text record by id")
-def update_text(text_id, text: str, db: Session = Depends(get_db)):
-    try:
-        texts = coffee_crud.update_text_by_id(db, text_id, text=text)
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return texts
-
-
-@router.delete("/speech/delete/", description="update text record by id")
-def update_text(text_id, db: Session = Depends(get_db)):
-    try:
-        coffee_crud.delete_text_by_id(db, text_id)
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return 'ok'
-
-
-@router.get("/machine/get_all_machine_states", description="get all text by code")
+@router.get("/machine/get_all_machine_states", summary="获取咖啡机的所有状态", description="get all text by code")
 def get_all_machine_states(db: Session = Depends(get_db)):
     try:
         machine_states_list = coffee_crud.get_machine_states_by_id(db)
@@ -495,33 +390,32 @@ def get_all_machine_states(db: Session = Depends(get_db)):
         return JSONResponse(status_code=400, content={'error': str(e)})
     return {"data": machine_states_list}
 
+@router.get("/speech/random", summary="随机播放", description="get one text from database")
+def text(code: str, db: Session = Depends(get_db)):
+    try:
+        text = coffee_crud.choose_one_speech_text(db, code)
+    except DBError as e:
+        return JSONResponse(status_code=400, content={'error': str(e)})
+    return text
 
-@router.get("/espresso/get", description="get composition of a formula")
-def get_espresso(formula: str,  db: Session = Depends(get_db)):
-    espresso = coffee_crud.get_espresso_by_formula(db, formula)
-    return espresso
+# @router.get("/espresso/get", summary="", description="get composition of a formula")
+# def get_espresso(formula: str, db: Session = Depends(get_db)):
+#     espresso = coffee_crud.get_espresso_by_formula(db, formula)
+#     return espresso
 
 
-@router.post("/clean_history", description="add_clean_history")
+@router.post("/clean_history", summary="新增清洗记录cleaning_method 1:Automatic; 2:Manual", description="add clean history")
 def add_clean_history(cleaning_dict: dict, cleaning_method: Literal['1', '2'], db: Session = Depends(get_db)):
+    """cleaning_method 1:Automatic; 2:Manual"""
     logger.info(f"cleaning_dict == {cleaning_dict} , cleaning_method == {cleaning_method}")
     try:
-        coffee_crud.add_cleaning_history(db, cleaning_dict=cleaning_dict, cleaning_method=cleaning_method)
+        coffee_crud.add_cleaning_history(db, cleaning_dict=cleaning_dict, cleaning_method=int(cleaning_method))
     except DBError as e:
         return JSONResponse(status_code=400, content={'error': str(e)})
     return 'ok'
 
 
-@router.get("/clean_history/get_last_one", description="get_clean_history")
-def get_last_one_clean_history(db: Session = Depends(get_db)):
-    try:
-        cleaning_history = coffee_crud.get_last_one_cleaning_history(db)
-    except DBError as e:
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return cleaning_history
-
-
-@router.get("/update_detect_by_name", description="get_clean_history")
+@router.post("/update_detect_by_name", summary="通过名称更新detect表数据", description="update clean history by name")
 def update_detect_by_name(name: str = None, status: int = None, task_uuid: UUID = None, db: Session = Depends(get_db)):
     try:
         coffee_crud.update_detect_by_name(db, name=name, status=status, task_uuid=task_uuid)
@@ -531,7 +425,7 @@ def update_detect_by_name(name: str = None, status: int = None, task_uuid: UUID 
     return 'ok'
 
 
-@router.get("/get_detect_all_data", description="get_clean_history")
+@router.get("/get_detect_all_data", summary="根据名称查询detect表中全部数据", description="get detect all data by name")
 async def get_detect_all_data(name: str = None, db: Session = Depends(get_db)):
     try:
         record_list = coffee_crud.get_detect_all_data(db, name=name)
@@ -541,7 +435,7 @@ async def get_detect_all_data(name: str = None, db: Session = Depends(get_db)):
     return record_list
 
 
-@router.get("/get_current_completed_drink", description="get current completed drink")
+@router.get("/get_current_completed_drink", summary="获取当前已完成的饮料订单", description="get current completed drink")
 def get_current_completed_drink(db: Session = Depends(get_db)):
     try:
         if record_list := coffee_crud.get_detect_all_data(db, name="cup_stand"):
@@ -554,41 +448,10 @@ def get_current_completed_drink(db: Session = Depends(get_db)):
                         if len(reference_id) > 4:
                             order_info["reference_id"] = reference_id[-4:]
                     record["detail"] = {"drink_info": drink_info, "order_info": order_info}
+                else:
+                    record["detail"] = {}
         return record_list
     except DBError as e:
         logger.error(traceback.format_exc())
         # logger.warning(str(e))
         return JSONResponse(status_code=400, content={'error': str(e)})
-
-
-@router.post("/add_formula_duration", description="add_formula_duration")
-def add_formula_duration(formula, duration, left_status, right_status, db: Session = Depends(get_db)):
-    try:
-        coffee_crud.add_formula_duration(db, formula, duration, left_status, right_status)
-    except DBError as e:
-        logger.error(traceback.format_exc())
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return "ok"
-
-
-@router.get("/get_formula_duration", description="get_formula_duration")
-def get_formula_duration(formula: str = None, db: Session = Depends(get_db)):
-    try:
-        if formula:
-            record_list = coffee_crud.get_formula_duration(db, formula)
-        else:
-            record_list = coffee_crud.get_formula_duration(db)
-    except DBError as e:
-        logger.error(traceback.format_exc())
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return record_list
-
-
-@router.get("/get_idle_interaction", description="get_idle_interaction")
-def get_idle_interaction(db: Session = Depends(get_db)):
-    try:
-        record_list = coffee_crud.get_idle_interaction(db)
-    except DBError as e:
-        logger.error(traceback.format_exc())
-        return JSONResponse(status_code=400, content={'error': str(e)})
-    return record_list
