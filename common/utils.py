@@ -1,4 +1,7 @@
 import datetime
+import queue
+import threading
+
 import pytz
 import inspect
 import json
@@ -165,3 +168,20 @@ def format_option(ori_name):
         return 'Large Cup'
     return ori_name
 
+
+def update_threads_step(status_queue: queue.Queue, thread=threading.current_thread(), step='create'):
+    """
+    thread name formatted as {name}-{step}
+    """
+    thread_name, current_step = thread.name, ''
+    try:
+        thread_name, current_step = thread.name.split('-')  # 防止在初始化时不进行格式化命名 | Prevent naming without formatting at initialization
+    except Exception:
+        thread.name = f'{thread_name}-{current_step}'
+
+    if current_step != step:
+        # 防止多次设置同一状态导致时间被覆盖 | Prevent time from being overwritten if you set the same status multiple times
+        msg = dict(time=time.time(), thread=thread_name, step=step)
+        logger.bind(threads=True).info(msg)
+        thread.name = f'{thread_name}-{step}'
+        status_queue.put(msg)

@@ -12,10 +12,11 @@ from loguru import logger
 from common.db.database import get_db
 from common.db.crud.coffee import update_detect_by_name
 from common.conf import get_machine_config
+from common.utils import update_threads_step
 
 
 class DetectPersonThread(threading.Thread):
-    def __init__(self, desc=None):
+    def __init__(self, desc=None, steps_queue=None):
         super().__init__()
         self.stopped = False  # exit thread or not
         self.run_flag = True
@@ -28,16 +29,23 @@ class DetectPersonThread(threading.Thread):
         self.db_session = next(get_db())
         timezone = get_machine_config().get('audio', '').get('timezone', '')
         self.local_tz = pytz.timezone(timezone)
+        self.steps_queue = steps_queue
 
         logger.info('start Detect Person Thread+++++++++++++++++++++++++++++++++=')
+
+    def update_step(self, step):
+        if self.steps_queue is not None:
+            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step=step)
 
     def pause(self):
         logger.info('{} is start, Detect Person Thread pause recording'.format(self.desc))
         self.run_flag = False
+        self.update_step('pause')
 
     def proceed(self):
         logger.info('{} is end, Detect Person Thread continue to record'.format(self.desc))
         self.run_flag = True
+        self.update_step('proceed')
 
     def stop(self):
         logger.info('{} Detect Person Thread thread stopped'.format(self.desc))
@@ -87,6 +95,7 @@ class DetectPersonThread(threading.Thread):
         ]
         }
         """
+        self.update_step('start')
         while not self.stopped:
             while self.run_flag:
                 try:
@@ -126,6 +135,7 @@ class DetectPersonThread(threading.Thread):
                     time.sleep(2)
             else:
                 time.sleep(10)
+        self.update_step('end')
 
 """
 'hi/hi1.mp3': 'Good morning!',

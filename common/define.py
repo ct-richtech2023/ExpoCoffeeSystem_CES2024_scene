@@ -267,13 +267,17 @@ class AudioConstant:
 
 
 class ThreadName:
-    left_pos_record = 'left_pos_record'
-    right_pos_record = 'right_pos_record'
-    coffee_thread = 'coffee_status'
-    dance_thread = 'dance'
-    follow_thread = 'follow'
-    cup_detect = 'cup_detect'
-    person_detect = 'cup_detect'
+    """classfication.parent_name.thread_name"""
+    left_pos_record = 'system.left_pos_record'
+    right_pos_record = 'system.right_pos_record'
+    coffee_thread = 'system.coffee_status'
+    dance_thread = 'dancing.dance'
+    follow_thread = 'dancing.follow'
+    cup_detect = 'system.cup_detect'
+    person_detect = 'system.cup_detect'
+
+    make = 'making'
+    roll = 'rolling'
 
 
 support_take_drinks = ['Shaken']

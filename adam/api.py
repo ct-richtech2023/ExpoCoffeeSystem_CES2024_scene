@@ -16,6 +16,7 @@ from common.define import Channel, AdamTaskStatus, ThreadName
 from common.myerror import MoveError
 from common.api import AudioInterface, CoffeeInterface, ASWServerInterface, VisualDetectInterface
 from common.db.crud import adam as adam_crud
+from common.utils import update_threads_step
 from devices.coffee.constant import MachineStatus
 from coffee_device import Coffee_Driver
 from common.db.database import get_db
@@ -66,8 +67,10 @@ def change_adam_status(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam = Dep
                 if adam.task_status == AdamTaskStatus.idle:
                     if not adam.follow_thread.is_alive():
                         adam.follow_thread = FollowThread(duration_in_seconds)
-                        adam.follow_thread.setDaemon(True)
                         adam.follow_thread.name = ThreadName.follow_thread
+                        adam.follow_thread.update_step('create')
+                        adam.follow_thread.setDaemon(True)
+                        adam.all_threads[ThreadName.follow_thread] = adam.follow_thread
                     adam.follow_thread.proceed()
                     adam.follow_thread.start()
             return adam.task_status
@@ -612,9 +615,11 @@ def proceed_dance(adam: Adam = Depends(get_adam_obj)):
     try:
         if adam.task_status == AdamTaskStatus.idle:
             if not adam.dance_thread.is_alive():
-                adam.dance_thread = DanceThread()
-                adam.dance_thread.setDaemon(True)
+                adam.dance_thread = DanceThread(adam.steps_queue)
                 adam.dance_thread.name = ThreadName.dance_thread
+                adam.dance_thread.update_step('create')
+                adam.dance_thread.setDaemon(True)
+                adam.all_threads[ThreadName.dance_thread] = adam.dance_thread
             adam.dance_thread.proceed(total_duration=adam.dance_time)
             adam.dance_thread.start()
         return 'ok'

@@ -36,7 +36,9 @@ async def root(request: Request):
 
 if __name__ == '__main__':
     LOG_PATH = conf.get_log_path(MODULE)
-    logger.add(LOG_PATH, rotation="1024KB")
+    logger.add(LOG_PATH, rotation="08:00")
+    STEP_PATH = os.path.join(LOG_PATH.split('.')[0] + '_steps', LOG_PATH.split('.')[-1])
+    logger.add(STEP_PATH, filter=lambda record: record["extra"].get('threads'), rotation="08:00")
     host, port = ServiceHost.host, getattr(ServicePort, MODULE).value
     logger.info('{} is starting, bind on {}:{}, log_path is {}'.format(MODULE, host, port, LOG_PATH))
     uvicorn.run(app="adam:app", host=host, port=port)

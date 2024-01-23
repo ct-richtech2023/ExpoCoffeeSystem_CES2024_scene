@@ -7,6 +7,7 @@ import csv
 import traceback
 from copy import deepcopy
 from loguru import logger
+from queue import Queue
 
 from common import define, utils, conf
 from common.api import AudioInterface, CoffeeInterface, CenterInterface
@@ -17,6 +18,7 @@ from common.schemas import common as common_schema
 from common.schemas import total as total_schema
 from common.db.crud import adam as adam_crud
 from common.myerror import MoveError, FormulaError, MaterialError, StopError
+from common.utils import update_threads_step
 from init import EnvConfig
 
 from coffee_device import Coffee_Driver
@@ -60,6 +62,8 @@ class Adam:
         # 一些线程初始化及状态标志
         self.thread_lock = threading.Lock()
         self.stop_event = threading.Event()
+        self.steps_queue = Queue()
+        self.all_threads = {}  # {name: thread}
 
         # 咖啡机相关 | Coffee machine related
         self.coffee_device_name = self.env.machine_config.adam.coffee_device
@@ -94,41 +98,57 @@ class Adam:
         self.enable_visual_recognition = False  # visual identity open sign 视觉识别开启标识
 
         # 记录机械臂位置线程
-        self.left_record = RecordThread(self.left, self.env.get_record_path('left'), 'left arm')
+        self.left_record = RecordThread(self.left, self.env.get_record_path('left'), 'left arm', self.steps_queue)
         self.left_record.name = ThreadName.left_pos_record
-        self.right_record = RecordThread(self.right, self.env.get_record_path('right'), 'right arm')
+        self.left_record.update_step('create')
+        self.left_record.setDaemon(True)
+        self.all_threads[ThreadName.left_pos_record] = self.left_record
+        self.right_record = RecordThread(self.right, self.env.get_record_path('right'), 'right arm', self.steps_queue)
         self.right_record.name = ThreadName.right_pos_record
+        self.right_record.update_step('create')
+        self.right_record.setDaemon(True)
+        self.all_threads[ThreadName.right_pos_record] = self.right_record
         self.init_record()
         self.left_roll_end = True  # 左臂是否回退完标志
         self.right_roll_end = True  # 右臂是否回退完标志
 
         # Comment back in to allow the coffee machine to work
         # 咖啡机状态线程
-        self.coffee_thread = QueryCoffeeThread(self.coffee_driver)
+        self.coffee_thread = QueryCoffeeThread(self.coffee_driver, self.steps_queue)
         self.coffee_thread.name = ThreadName.coffee_thread
+        self.coffee_thread.update_step('create')
         self.coffee_thread.setDaemon(True)
+        self.all_threads[ThreadName.coffee_thread] = self.coffee_thread
         self.coffee_thread.start()
 
         # dance threading 跳舞线程
-        self.dance_thread = DanceThread()
+        self.dance_thread = DanceThread(self.steps_queue)
         self.dance_thread.name = ThreadName.dance_thread
+        self.dance_thread.update_step('create')
         self.dance_thread.setDaemon(True)
+        self.all_threads[ThreadName.dance_thread] = self.dance_thread
         self.dance_time = 20 * 60  # Countdown time 倒计时时间  Unit: s
 
-        self.follow_thread = FollowThread(0)
+        self.follow_thread = FollowThread(0, self.steps_queue)
         self.follow_thread.name = ThreadName.follow_thread
+        self.follow_thread.update_step('create')
         self.follow_thread.setDaemon(True)
+        self.all_threads[ThreadName.follow_thread] = self.follow_thread
 
         # # detect cup 视觉识别杯子识别
-        # self.detect_cup_thread = DetectCupStandThread()
+        # self.detect_cup_thread = DetectCupStandThread(steps_queue=self.steps_queue)
         # self.detect_cup_thread.name = ThreadName.cup_detect
+        # self.detect_cup_thread.update_step('create')
         # self.detect_cup_thread.setDaemon(True)
+        # self.all_threads[ThreadName.cup_detect] = self.detect_cup_thread
         # self.detect_cup_thread.start()
         #
         # # detect person 视觉识别人物识别
-        # self.detect_person_thread = DetectPersonThread()
+        # self.detect_person_thread = DetectPersonThread(steps_queue=self.steps_queue)
         # self.detect_person_thread.name = ThreadName.person_detect
+        # self.detect_person_thread.update_step('create')
         # self.detect_person_thread.setDaemon(True)
+        # self.all_threads[ThreadName.person_detect] = self.detect_person_thread
         # self.detect_person_thread.start()
 
         # 程序上电就会强制回零点
@@ -150,6 +170,11 @@ class Adam:
         self.left_record.pause()
         self.right_record.start()
         self.right_record.pause()
+
+    def update_step(self, name, step):
+        msg = dict(time=time.time(), thread=name, step=step)
+        logger.bind(threads=True).info(msg)
+        self.steps_queue.put(msg)
 
     def resume(self):
         self.left.motion_enable()
@@ -525,6 +550,7 @@ class Adam:
         """
         Adam软件急停
         """
+        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='stop')
         self.stop_event.set()
         self.is_coffee_finished = True
         self.change_adam_status(AdamTaskStatus.stopped)
@@ -695,6 +721,8 @@ class Adam:
         """
         make_cold_drink
         """
+        self.update_step(ThreadName.make, 'start')
+
         start_time = int(time.time())
         # AudioInterface.gtts2("Got it, I'm making your drink now!")
         AudioInterface.gtts('/richtech/resource/audio/voices/start_making4.mp3')
@@ -727,6 +755,7 @@ class Adam:
             def left_step1():
                 try:
                     if with_foam_coffee:
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_foam_cup_judge')
                         self.take_foam_cup_judge(Arm.left)
                         self.check_adam_status('make_cold_drink take_foam_cup', status=AdamTaskStatus.making)
                         foam_composition = deepcopy(
@@ -734,9 +763,12 @@ class Adam:
                         foam_composition.pop('foam_coffee')
                         # if self.enable_visual_recognition:
                         #     self.detect_cup_thread.pause()  # close detect_cup_thread
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_ingredients')
                         self.take_ingredients(Arm.left, foam_composition)
                         self.check_adam_status('make_cold_drink take_ingredients_foam', status=AdamTaskStatus.making)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='put_foam_cup')
                         self.put_foam_cup(Arm.left)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='put_foam_cup_end')
                         self.check_adam_status('make_cold_drink put_foam_cup', status=AdamTaskStatus.making)
                         self.put_foam_flag = True
                         self.goto_temp_point(Arm.left, y=20, wait=False)
@@ -746,16 +778,19 @@ class Adam:
                         # if self.enable_visual_recognition:
                         #     self.detect_cup_thread.proceed()  # open detect_cup_thread
 
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_cold_cup')
                     self.take_cold_cup()
                     self.check_adam_status('make_cold_drink take_cold_cup', status=AdamTaskStatus.making)
                     if delay_time := composition.get(define.Constant.MachineType.ice_maker, {}).get("ice", 0):
                         if delay_time > 0:
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_ice')
                             self.take_ice(delay_time)
                             self.check_adam_status('make_cold_drink take_ice', status=AdamTaskStatus.making)
 
                     if not with_foam:
                         # if self.enable_visual_recognition:
                         #     self.detect_cup_thread.pause()  # close detect_cup_thread
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_ingredients')
                         self.take_ingredients(Arm.left, composition.get(define.Constant.MachineType.tap, {}))
                         self.check_adam_status('make_cold_drink take_ingredients', status=AdamTaskStatus.making)
                         self.goto_initial_position_direction(Arm.left, 0, wait=True, speed=800)
@@ -768,13 +803,17 @@ class Adam:
                     # 冷咖在等待咖啡机制作时空闲互动 idle interaction
                     if conf.get_idle_Interaction()['state'] and not self.is_coffee_finished:
                         if with_coffee:
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='idle_interaction')
                             self.idle_interaction(coffee_record.formula, "cold")
                         # else:
                         #     self.is_coffee_finished = True
                         #     AudioInterface.stop()
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                     self.stop(f"make_cold_drink left_step1 error is {e}")
+                finally:
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
             def right_step1():
                 try:
@@ -784,27 +823,33 @@ class Adam:
                             # self.take_espresso_cup()
                             foam_coffee = foam_machine.get('foam', {}).get('foam_composition', {}).get('foam_coffee', {})
                             espresso_composition = {"foam_coffee": {"coffee_make": {"drinkType": foam_coffee - 1}}}
-                            self.take_coffee_machine(espresso_composition, formula=coffee_record.formula, type="cold", is_take_espresso_cup=True)
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_coffee_machine')
+                            self.take_coffee_machine(espresso_composition, parent_thread_name=threading.current_thread().name, formula=coffee_record.formula, type="cold", is_take_espresso_cup=True)
                             self.check_adam_status('make_cold_drink take_coffee_machine', status=AdamTaskStatus.making)
                             while not self.put_foam_flag and not self.stop_event.is_set():
                                 logger.info(f"waiting put_foam_cup success")
                                 time.sleep(1)
                             if not self.stop_event.is_set():
+                                update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='stainless_cup_pour_foam')
                                 self.stainless_cup_pour_foam()
                             self.check_adam_status('make_cold_drink stainless_cup_podef make_cold_drinkur_foam', status=AdamTaskStatus.making)
                         else:
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_foam_cup_judge')
                             self.take_foam_cup_judge(Arm.right)
                             self.check_adam_status('make_cold_drink take_foam_cup', status=AdamTaskStatus.making)
                             # if self.enable_visual_recognition:
                             #     self.detect_cup_thread.pause()  # close detect_cup_thread
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_ingredients')
                             self.take_ingredients(Arm.right, foam_machine.get('foam', {}).get('foam_composition', {}))
                             self.check_adam_status('make_cold_drink take_ingredients_foam', status=AdamTaskStatus.making)
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='put_foam_cup')
                             self.put_foam_cup(Arm.right, wait=True)
                             self.check_adam_status('make_cold_drink put_foam_cup', status=AdamTaskStatus.making)
                             # if self.enable_visual_recognition:
                             #     self.detect_cup_thread.proceed()  # open detect_cup_thread
                     elif with_coffee:
-                        self.take_coffee_machine(composition.get(define.Constant.MachineType.coffee_machine, {}), formula=coffee_record.formula,
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_coffee_machine')
+                        self.take_coffee_machine(composition.get(define.Constant.MachineType.coffee_machine, {}), parent_thread_name=threading.current_thread().name, formula=coffee_record.formula,
                                                  is_take_espresso_cup=True)
                         self.check_adam_status('make_cold_drink take_coffee_machine', status=AdamTaskStatus.making)
 
@@ -816,15 +861,21 @@ class Adam:
                             logger.info(f"random_number={random_number}")
                             logger.info(f"threshold={threshold}")
                             if random_number < threshold:
+                                update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='right_random_action')
                                 self.right_random_action(coffee_record.formula)
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                     self.stop(f"make_cold_drink right_step1 error is {e}")
+                finally:
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
             self.check_adam_status("make_cold_drink step1 thread", AdamTaskStatus.making)
-            step1_thread = [threading.Thread(target=left_step1), threading.Thread(target=right_step1)]
+            step1_thread = [threading.Thread(target=left_step1, name='making.left1', daemon=True),
+                            threading.Thread(target=right_step1, name='making.right1', daemon=True)]
             for t in step1_thread:
                 t.start()
+                update_threads_step(status_queue=self.steps_queue, thread=t, step='start')
             for t in step1_thread:
                 t.join()
 
@@ -832,22 +883,31 @@ class Adam:
             def make_foam_step():
                 try:
                     if with_foam:
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='make_foam')
                         self.make_foam(composition.get(define.Constant.MachineType.foam_machine, {}))
                         self.check_adam_status('make_cold_drink make_foam', status=AdamTaskStatus.making)
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                     self.stop(f"make_cold_drink make_foam_step error is {e}")
+                finally:
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
             def right_step2():
                 try:
                     if with_foam_coffee:
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='with_foam_coffee')
                         self.clean_and_put_espresso_cup()
                         self.check_adam_status('make_cold_drink clean_and_put_espresso_cup', status=AdamTaskStatus.making)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_foam_cup')
                         self.take_foam_cup(Arm.right, move=True, waiting=True)
                         self.check_adam_status('make_cold_drink take_foam_cup', status=AdamTaskStatus.making)
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                     self.stop(f"make_cold_drink make_foam_step error is {e}")
+                finally:
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
             def left_step2():
                 try:
@@ -856,22 +916,29 @@ class Adam:
                     if with_foam and not self.stop_event.is_set():
                         # if self.enable_visual_recognition:
                         #     self.detect_cup_thread.pause()  # close detect_cup_thread
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_ingredients')
                         self.take_ingredients(Arm.left, composition.get(define.Constant.MachineType.tap, {}))
                         self.check_adam_status('make_cold_drink take_ingredients', status=AdamTaskStatus.making)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='goto_initial')
                         self.goto_initial_position_direction(Arm.left, 0, wait=True, speed=800)
                         self.check_adam_status('make_cold_drink goto_initial_position_direction', status=AdamTaskStatus.making)
                         # if self.enable_visual_recognition:
                         #     self.detect_cup_thread.proceed()  # open detect_cup_thread
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                     self.stop(f"make_cold_drink make_foam_step error is {e}")
                 finally:
                     self.thread_lock.release()
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
             self.check_adam_status("make_cold_drink before step2 thread", AdamTaskStatus.making)
-            step2_thread = [threading.Thread(target=make_foam_step), threading.Thread(target=right_step2), threading.Thread(target=left_step2)]
+            step2_thread = [threading.Thread(target=make_foam_step, name='making.make_foam', daemon=True),
+                            threading.Thread(target=right_step2, name='making.right2', daemon=True),
+                            threading.Thread(target=left_step2, name='making.left2', daemon=True)]
             for t in step2_thread:
                 t.start()
+                update_threads_step(status_queue=self.steps_queue, thread=t, step='start')
             for t in step2_thread:
                 t.join()
             self.check_adam_status('make_cold_drink after step2 thread', status=AdamTaskStatus.making)
@@ -879,6 +946,7 @@ class Adam:
             # step 3 : 如果判断需要咖啡原液，则将其导入左手冷杯中
             if not with_foam:
                 if with_coffee:
+                    self.update_step(ThreadName.make, 'pour_foam_cup')
                     self.pour_foam_cup('right')
                     self.check_adam_status('make_cold_drink pour_foam_cup', status=AdamTaskStatus.making)
 
@@ -886,27 +954,47 @@ class Adam:
                 AudioInterface.gtts(f'/richtech/resource/audio/voices/ready_{coffee_record.formula}.mp3')
 
                 def left_step3():
-                    self.goto_initial_position_direction(Arm.left, 0, wait=False, speed=250)
-                    self.put_cold_cup(task_uuid=coffee_record.task_uuid)
-                    self.check_adam_status('make_cold_drink put_cold_cup', status=AdamTaskStatus.making)
+                    try:
+                        self.goto_initial_position_direction(Arm.left, 0, wait=False, speed=250)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='put_cold_cup')
+                        self.put_cold_cup(task_uuid=coffee_record.task_uuid)
+                        self.check_adam_status('make_cold_drink put_cold_cup', status=AdamTaskStatus.making)
+                    except Exception as e:
+                        logger.error(traceback.format_exc())
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
+                        # self.stop(f"make_cold_drink make_foam_step error is {e}")  # 出杯失败不认为制作失败 | A failure to come out of the cup is not considered a failure of production
+                    finally:
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
                 def right_step3():
-                    if with_coffee:
-                        self.clean_and_put_espresso_cup()
-                        self.check_adam_status('make_cold_drink clean_and_put_espresso_cup', status=AdamTaskStatus.making)
+                    try:
+                        if with_coffee:
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='clean_and_put_espresso_cup')
+                            self.clean_and_put_espresso_cup()
+                            self.check_adam_status('make_cold_drink clean_and_put_espresso_cup', status=AdamTaskStatus.making)
+                    except Exception as e:
+                        logger.error(traceback.format_exc())
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
+                        # self.stop(f"make_cold_drink make_foam_step error is {e}")  # 出杯失败不认为制作失败 | A failure to come out of the cup is not considered a failure of production
+                    finally:
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
                 self.check_adam_status("make_cold_drink before step3 thread", AdamTaskStatus.making)
-                step3_thread = [threading.Thread(target=left_step3), threading.Thread(target=right_step3)]
+                step3_thread = [threading.Thread(target=left_step3, name='making.left3', daemon=True),
+                                threading.Thread(target=right_step3, name='making.right3', daemon=True)]
                 for t in step3_thread:
                     t.start()
+                    update_threads_step(status_queue=self.steps_queue, thread=t, step='start')
                 for t in step3_thread:
                     t.join()
                 self.check_adam_status("make_cold_drink after step3 thread", AdamTaskStatus.making)
 
             # step 4 :
             else:
+                self.update_step(ThreadName.make, 'take_foam_cup')
                 self.take_foam_cup(Arm.right, False, False)
                 self.check_adam_status('make_cold_drink take_foam_cup', status=AdamTaskStatus.making)
+                self.update_step(ThreadName.make, 'pour_foam_cup')
                 self.pour_foam_cup("right")
                 self.check_adam_status('make_cold_drink pour_foam_cup', status=AdamTaskStatus.making)
 
@@ -916,29 +1004,42 @@ class Adam:
                 def left_step4():
                     try:
                         self.goto_initial_position_direction(Arm.left, 0, wait=False, speed=250)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='put_cold_cup')
                         self.put_cold_cup(task_uuid=coffee_record.task_uuid)
                         self.check_adam_status('make_cold_drink put_cold_cup', status=AdamTaskStatus.making)
                     except Exception as e:
                         logger.error(traceback.format_exc())
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                         self.stop(f"make_cold_drink make_foam_step error is {e}")
+                    finally:
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
+
 
                 def right_step4():
                     try:
                         time.sleep(1)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='clean_foamer')
                         self.clean_foamer()
                         self.check_adam_status('make_cold_drink clean_foamer', status=AdamTaskStatus.making)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='put_foam_cup')
                         self.put_foam_cup(Arm.right)
                         self.check_adam_status('make_cold_drink put_foam_cup', status=AdamTaskStatus.making)
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='back_to_initial')
                         self.back_to_initial(Arm.right)
                         self.check_adam_status('make_cold_drink back_to_initial', status=AdamTaskStatus.making)
                     except Exception as e:
                         logger.error(traceback.format_exc())
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                         self.stop(f"make_cold_drink make_foam_step error is {e}")
+                    finally:
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
                 self.check_adam_status("make_cold_drink before step4 thread", AdamTaskStatus.making)
-                step4_thread = [threading.Thread(target=left_step4), threading.Thread(target=right_step4)]
+                step4_thread = [threading.Thread(target=left_step4, name='making.left4', daemon=True),
+                                threading.Thread(target=right_step4, name='making.right4', daemon=True)]
                 for t in step4_thread:
                     t.start()
+                    update_threads_step(status_queue=self.steps_queue, thread=t, step='start')
                 for t in step4_thread:
                     t.join()
                 self.check_adam_status("make_cold_drink after step4 thread", AdamTaskStatus.making)
@@ -949,9 +1050,11 @@ class Adam:
             self.change_adam_status(AdamTaskStatus.idle)
 
         except Exception as e:
+            self.update_step(ThreadName.make, 'error')
             self.stop(str(e))
         finally:
             self.is_coffee_finished = True
+            self.update_step(ThreadName.make, 'END')
             get_make_time = int(time.time()) - start_time
             logger.info(f"{coffee_record.formula} making use time is : {get_make_time}")
 
@@ -966,17 +1069,25 @@ class Adam:
         'coffeeMilkTogether': 0, 'adjustOrder': 1}
         }}, 'cup': {'hot_cup': 1}}
         """
+
+        self.update_step(ThreadName.make, 'start')
+
         start_time = int(time.time())
         AudioInterface.gtts('/richtech/resource/audio/voices/start_making4.mp3')
         logger.debug('start in make_hot_drink')
 
         try:
+            self.update_step(ThreadName.make, 'get_composition_by_option')
             composition = self.get_composition_by_option(coffee_record)
             logger.info(f"into make_hot_drink  :{composition}")
         except Exception as e:
             # 防止只改变订单状态，并未改变adam状态 | Prevent only changing the order status without changing the adam status
             self.change_adam_status(AdamTaskStatus.idle)
+            self.update_step(ThreadName.make, 'error')
+            self.update_step(ThreadName.make, 'END')
             raise e
+
+
 
         self.is_coffee_finished = False
 
@@ -988,18 +1099,22 @@ class Adam:
 
         try:
             self.check_adam_status('make_hot_drink take_hot_cup', status=AdamTaskStatus.making)
-            self.take_coffee_machine(composition.get("coffee_machine", {}), formula=coffee_record.formula, type="hot", is_take_hot_cup=True)
+            self.update_step(ThreadName.make, 'take_coffee_machine')
+            self.take_coffee_machine(composition.get("coffee_machine", {}), parent_thread_name='making', formula=coffee_record.formula, type="hot", is_take_hot_cup=True)
             self.check_adam_status('make_hot_drink take_coffee_machine', status=AdamTaskStatus.making)
             # AudioInterface.gtts("receipt {}, your {} is ready.".format('-'.join(list(receipt_number)), formula))
             AudioInterface.gtts(f'/richtech/resource/audio/voices/ready_{coffee_record.formula}.mp3')
+            self.update_step(ThreadName.make, 'put_hot_cup')
             self.put_hot_cup(task_uuid=coffee_record.task_uuid)
             self.check_adam_status('make_hot_drink put_hot_cup', status=AdamTaskStatus.making)
             self.change_adam_status(AdamTaskStatus.idle)
         except Exception as e:
+            self.update_step(ThreadName.make, 'error')
             self.stop(str(e))
         finally:
             self.right_record.pause()
             self.left_record.pause()
+            self.update_step(ThreadName.make, 'END')
             get_make_time = int(time.time()) - start_time
             logger.info(f"{coffee_record.formula} making use time is : {get_make_time}")
 
@@ -1180,7 +1295,7 @@ class Adam:
         self.goto_temp_point(which, x=500, y=10.5, z=400, wait=False, speed=pose_speed)
         self.goto_angles(which, adam_schema.Angles.list_to_obj([-159.6, 72, -116.9, 49.6, 29.6, -173.9]), wait=True, speed=angle_speed)
         self.check_adam_angles(which, [-159.6, 72, -116.9, 49.6, 29.6, -173.9], "goto clean espresso_cup")
-        check_thread = CheckThread(self.env.one_arm(which), self.stop)
+        check_thread = CheckThread(self.env.one_arm(which), self.stop, thread_name=f'{threading.current_thread().name}.check', steps_queue=self.steps_queue)
         try:
             check_thread.start()
             self.check_adam_status("clean_and_put_espresso_cup", AdamTaskStatus.making)
@@ -1340,7 +1455,7 @@ class Adam:
         which = Arm.right
         self.goto_point(which, adam_schema.Pose.list_to_obj([632.6, 3.2, 158.0, -75.4, -86.9, -53.8]), wait=True, speed=pose_speed)
         self.check_adam_pos(which, [632.6, 3.2, 158.0, -75.4, -86.9, -53.8], "goto clean foamer")
-        check_thread = CheckThread(self.env.one_arm(which), self.stop)
+        check_thread = CheckThread(self.env.one_arm(which), self.stop, thread_name=f'{threading.current_thread().name}.check', steps_queue=self.steps_queue)
         try:
             check_thread.start()
             self.check_adam_status("clean_foamer", AdamTaskStatus.making)
@@ -1425,11 +1540,15 @@ class Adam:
                                     wait=True)  # 右手位置 x = 465, y = -70, z=420
 
                 self.check_adam_status("ready pour_foam_cup", AdamTaskStatus.making)
-                thread_list = [threading.Thread(target=right_action), threading.Thread(target=left_action)]
+                thread_list = [threading.Thread(target=right_action, name=f'{ThreadName.make}.pour_foam_cup.right', daemon=True),
+                               threading.Thread(target=left_action, name=f'{ThreadName.make}.pour_foam_cup.left', daemon=True)]
                 for t in thread_list:
                     t.start()
+                    update_threads_step(status_queue=self.steps_queue, thread=t, step='start')
                 for t in thread_list:
                     t.join()
+                for t in thread_list:
+                    update_threads_step(status_queue=self.steps_queue, thread=t, step='end')
 
                 # This joint motion is the pour
                 self.goto_angles(Arm.right, adam_schema.Angles.list_to_obj([-128.5, 39.5, -62.8, 0.1, 26.2, -92.5]), wait=True, speed=angle_speed)
@@ -1619,7 +1738,7 @@ class Adam:
                 for name, quantity in composition.items():
                     CoffeeInterface.post_use(name, quantity)
                 logger.debug('open_dict = {}'.format(composition))
-                check_thread = CheckThread(self.env.one_arm(which), self.stop)
+                check_thread = CheckThread(self.env.one_arm(which), self.stop, thread_name=f'{threading.current_thread().name}.check', steps_queue=self.steps_queue)
                 try:
                     check_thread.start()
                     self.ser.open_port_together_by_type(composition, self.stop_event)
@@ -1648,7 +1767,7 @@ class Adam:
 
         self.goto_point(which, dispense_pose, wait=True, speed=100)
 
-        check_thread = CheckThread(self.env.one_arm(which), self.stop)
+        check_thread = CheckThread(self.env.one_arm(which), self.stop, thread_name=f'{threading.current_thread().name}.check', steps_queue=self.steps_queue)
         check_thread.start()
         time.sleep(delay_time)  # 等待接冰
         check_thread.stop()
@@ -1657,7 +1776,7 @@ class Adam:
         # 设置成True后，防止直接进入下一步After setting to True, prevent directly entering the next step.
         self.goto_initial_position_direction(which, 0, wait=True, speed=pose_speed)  # 返回工作零点
 
-    def take_coffee_machine(self, composition: dict, formula=None, type=None, is_take_espresso_cup=False, is_take_hot_cup=False):
+    def take_coffee_machine(self, composition: dict, parent_thread_name, formula=None, type=None, is_take_espresso_cup=False, is_take_hot_cup=False):
         """
         "latte": {
             "count": 60,
@@ -1703,22 +1822,28 @@ class Adam:
                     logger.info("There is coffee_pose: {}".format(coffee_pose))
                     if is_take_hot_cup:
                         logger.info("Now grabbing the hot cup")
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_hot_cup')
                         self.take_hot_cup(take_cup_success)
                     if is_take_espresso_cup:
                         logger.info("Now grabbing the espresso cup")
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='take_espresso_cup')
                         self.take_espresso_cup(take_cup_success)
                     # If a hot drink was ordered this motion will move very slow if the last wait in take_hot_cup is False.
                     self.goto_point(which, before_coffee_pose, speed=pose_speed, wait=False)
                     self.goto_point(which, coffee_pose, wait=True, speed=pose_speed)
                     if conf.get_idle_Interaction()['state'] and type and not self.is_coffee_finished and not self.stop_event.is_set():
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='idle_interaction')
                         self.idle_interaction(formula, type)
                 except Exception as e:
                     logger.error(traceback.format_exc())
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                     self.stop(f"goto_coffee_pose error={e}")
+                finally:
+                    update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
             def make_coffee(composition, take_cup_success):
                 for name, config in composition.items():
-                    check_thread = CheckThread(self.env.one_arm(which), self.stop)
+                    check_thread = CheckThread(self.env.one_arm(which), self.stop, f'{threading.current_thread().name}.check', self.steps_queue)
                     self.coffee_thread.pause()
                     try:
                         check_thread.start()
@@ -1728,21 +1853,25 @@ class Adam:
                             time.sleep(0.5)
                         self.coffee_driver.wait_until_idle(check=True)
                         if not self.stop_event.is_set():
+                            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='make_coffee')
                             self.coffee_driver.make_coffee(coffee_dict["drinkType"])
                     except Exception as e:
                         logger.error(traceback.format_exc())
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='error')
                         self.stop(f"make_coffee error={e}")
                     finally:
                         self.coffee_thread.proceed()
                         self.is_coffee_finished = True
                         check_thread.stop()
+                        update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
             take_cup_success = threading.Event()
-            step1_thread = [threading.Thread(target=goto_coffee_pose, args=(coffee_pose, take_cup_success)),
-                            threading.Thread(target=make_coffee, args=(composition, take_cup_success))]
+            step1_thread = [threading.Thread(target=goto_coffee_pose, args=(coffee_pose, take_cup_success), name=f'{parent_thread_name}.goto_coffee_pose', daemon=True),
+                            threading.Thread(target=make_coffee, args=(composition, take_cup_success), name=f'{parent_thread_name}.make_coffee', daemon=True)]
             logger.info("Begin the thread")
             for t in step1_thread:
                 t.start()
+                update_threads_step(status_queue=self.steps_queue, thread=t, step='start')
             for t in step1_thread:
                 t.join()
             logger.info("The threads are done")
@@ -1794,14 +1923,8 @@ class Adam:
                 if type == 'hot':
                     num = random.randint(0, 1)
                     if num == 0:
-                        # left_thread = threading.Thread(target=self.left_interaction_dance)  # dance
-                        # left_thread.start()
-                        # left_thread.join()
                         self.left_interaction_dance()
                     elif num == 1:
-                        # left_thread = threading.Thread(target=self.left_random_action, args=(formula,))  # coffee introduction
-                        # left_thread.start()
-                        # left_thread.join()
                         self.left_random_action(formula)
                 elif type == 'cold':
                     num = random.randint(0, 0)
@@ -2100,9 +2223,11 @@ class Adam:
         if self.task_status not in [AdamTaskStatus.stopped]:
             return 'don\'t need to roll back'
         self.change_adam_status(AdamTaskStatus.rolling)
+        self.update_step(name=ThreadName.roll, step='start')
         time.sleep(17)  # wait for someone to be ready to take the cup and shaker
         self.left_roll_end = False
         self.right_roll_end = False
+
 
         def roll_end():
             logger.debug('try to roll end with left_roll_end={}, right_roll_end={}'.format(self.left_roll_end,
@@ -2123,6 +2248,7 @@ class Adam:
                 self.env.adam.set_state(dict(state=4), dict(state=4))
                 self.dead(Arm.left)
             logger.warning('adam left arm roll back end')
+            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
         def right_roll():
             rflag, msg = self.back(Arm.right, self.env.get_record_path(Arm.right))
@@ -2135,20 +2261,23 @@ class Adam:
                 self.env.adam.set_state(dict(state=4), dict(state=4))
                 self.dead(Arm.right)
             logger.warning('adam right arm roll back end')
+            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step='end')
 
         thread_list = [
-            threading.Thread(target=left_roll),
-            threading.Thread(target=right_roll)
+            threading.Thread(target=left_roll, name=f'{ThreadName.roll}.left', daemon=True),
+            threading.Thread(target=right_roll, name=f'{ThreadName.roll}.right', daemon=True)
         ]
         for t in thread_list:
             t.start()
+            update_threads_step(self.steps_queue, thread=t, step='start')
         for t in thread_list:
             t.join()
+        self.update_step(name=ThreadName.roll, step='end')
         return 'ok'
 
 
 class QueryCoffeeThread(threading.Thread):
-    def __init__(self, coffee_driver: Coffee_Driver):
+    def __init__(self, coffee_driver: Coffee_Driver, steps_queue=None):
         super().__init__()
         self.coffee_driver = coffee_driver
         self.coffee_status = dict(status_code=self.coffee_driver.last_status.get('status_code', ''),
@@ -2156,9 +2285,15 @@ class QueryCoffeeThread(threading.Thread):
                                   error_code=self.coffee_driver.last_status.get('error_code', ''),
                                   error=self.coffee_driver.last_status.get('error', ''), )
         self.run_flag = True
+        self.steps_queue = steps_queue
+
+    def update_step(self, step):
+        if self.steps_queue is not None:
+            utils.update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step=step)
 
     def pause(self):
         self.run_flag = False
+        self.update_step('pause')
 
     def proceed(self):
         self.coffee_status = dict(status_code=self.coffee_driver.last_status.get('status_code', ''),
@@ -2166,8 +2301,10 @@ class QueryCoffeeThread(threading.Thread):
                                   error_code=self.coffee_driver.last_status.get('error_code', ''),
                                   error=self.coffee_driver.last_status.get('error', ''), )
         self.run_flag = True
+        self.update_step('proceed')
 
     def run(self):
+        self.update_step('start')
         while True:
             if self.run_flag:
                 try:
@@ -2186,3 +2323,4 @@ class QueryCoffeeThread(threading.Thread):
                 if error != '':
                     AudioInterface.gtts(error)
             time.sleep(10)  # 每分钟查询一次咖啡机状态
+        # self.update_step('end') # 永远不会进入这一行代码 | Never get into this line of code
