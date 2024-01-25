@@ -90,10 +90,10 @@ class MakeThread(threading.Thread):
                 # 2. call adam to make coffee
                 if record.formula in self.cold_drink:
                     logger.info('formula={}, make_cold_drink'.format(record.formula))
-                    AdamInterface.make_cold_drink(record.dict())
+                    AdamInterface.make_cold_drink(coffee_record={**record.dict(), "task_uuid": str(record.task_uuid)})
                 elif record.formula in self.hot_drink:
                     logger.info('formula={}, make_hot_drink'.format(record.formula))
-                    AdamInterface.make_hot_drink(record.dict())
+                    AdamInterface.make_hot_drink(coffee_record={**record.dict(), "task_uuid": str(record.task_uuid)})
                 else:
                     raise Exception('not support formula:{}'.format(record.formula))
 

@@ -6,6 +6,7 @@ import requests
 from common.db.crud import adam as adam_crud
 from common.api import AdamInterface, AudioInterface, VisualDetectInterface
 from loguru import logger
+from common.define import AdamTaskStatus
 
 from common.db.database import MySuperContextManager
 from common.utils import update_threads_step
@@ -32,7 +33,7 @@ class DanceThread(threading.Thread):
 
     def update_step(self, step):
         if self.steps_queue is not None:
-            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step=step)
+            update_threads_step(status_queue=self.steps_queue, thread=self, step=step)
 
     def proceed(self, total_duration):
         self.total_duration = total_duration
@@ -47,12 +48,12 @@ class DanceThread(threading.Thread):
         self.update_step('pause')
 
     def stop_thread(self):
+        self.update_step('stop_thread')
         self.total_duration = 0
         self.running = False
         logger.info('dance thread stopped')
         if self.need_zero:
             AdamInterface.zero(idle=True)
-        self.update_step('stop_thread')
 
     def run(self):
         # self.running = True
@@ -94,10 +95,10 @@ class FollowThread(threading.Thread):
 
     def update_step(self, step):
         if self.steps_queue is not None:
-            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step=step)
+            update_threads_step(status_queue=self.steps_queue, thread=self, step=step)
 
     def proceed(self):
-        logger.info('dance thread proceed')
+        logger.info('follow thread proceed')
         self.running = True
         self.update_step('proceed')
 
@@ -105,18 +106,18 @@ class FollowThread(threading.Thread):
         self.total_duration = 0
         self.running = False
         self.update_step('pause')
-        logger.info('dance thread pause')
+        logger.info('follow thread pause')
 
     def stop_thread(self, idle=True):
+        self.update_step('stop_thread')
         self.total_duration = 0
         self.running = False
-        logger.info('dance thread stopped')
+        logger.info('follow thread stopped')
         VisualDetectInterface.stop_following()
         AudioInterface.stop()
         AdamInterface.stop_move()
         if idle:
             AdamInterface.change_adam_status_idle("idle")
-        self.update_step('stop_thread')
 
     def run(self):
         self.update_step('start')
@@ -124,11 +125,6 @@ class FollowThread(threading.Thread):
             self.start_time = int(time.time())
             while self.running:
                 remain_time = self.total_duration - (int(time.time()) - self.start_time)
-                if remain_time > 1:
-                    try:
-                        AdamInterface.change_adam_status("follow", remain_time)
-                    except requests.Timeout:
-                        AdamInterface.change_adam_status("idle")
-                else:
-                    AdamInterface.change_adam_status("idle")
+                if remain_time < 1:
+                    AdamInterface.change_adam_status(AdamTaskStatus.idle)
         self.update_step('end')

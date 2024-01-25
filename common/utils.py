@@ -1,6 +1,7 @@
 import datetime
 import queue
 import threading
+import traceback
 
 import pytz
 import inspect
@@ -14,8 +15,32 @@ import time
 import yaml
 from loguru import logger
 
+# from common.define import STEPNAME_MAP
+
 PROC_1_NAME = None
 PCM_NUMBER = None
+
+STEPNAME_MAP = {  # 如果重新添加了关键步骤，这边的字典需要及时维护 | If a key step is re-added, the dictionary here needs to be maintained in a timely manner
+    'START': 'Start Making',  # 制作开始
+    'error': 'Error',  # 出错
+    'END': 'End Making',  # 制作结束
+    'get_composition_by_option': 'Parse Recipe',  # 解析配方
+    'put_hot_cup': 'Put Hot Cup',  # 出热杯
+    'take_coffee_machine': 'Take Cup for Coffee',  # 抓杯接咖啡
+    'take_foam_cup': 'Take Foam Cup',  # 抓奶泡杯
+    'pour_foam_cup': 'Pour Foam',  # 倒奶泡
+    'take_foam_cup_judge': 'Grab Foam Cup',  # 抓奶泡杯
+    'put_foam_cup': 'Put Foam Cup',  # 放奶泡杯
+    'take_ingredients': 'Take Ingredients',  # 接龙头
+    'take_cold_cup': 'Take Cold Cup',  # 抓冷杯
+    'take_ice': 'Take Ice',  # 接冰
+    'idle_interaction': 'Interaction',  # 互动
+    'put_cold_cup': 'Put Cold Cup',  # 放冷杯
+    'clean_and_put_espresso_cup': 'Clean and Place Espresso Cup',  # 清洗不锈钢杯
+    'clean_foamer': 'Clean Foamer',  # 清洗奶泡杯
+    'make_foam': 'Make Foam',  # 打奶泡
+    'stainless_cup_pour_foam': 'Pour Coffee into Foam Cup', # stainless_cup_pour_foam
+}
 
 
 def reduce_sound():
@@ -24,7 +49,7 @@ def reduce_sound():
         time.sleep(0.05)
 
 def recover_sound():
-    os.system(f"amixer set PCM 100%")
+    os.system(f"amixer set PCM 80%")  # 100%
 
 
 def get_current_func_name():
@@ -181,7 +206,39 @@ def update_threads_step(status_queue: queue.Queue, thread=threading.current_thre
 
     if current_step != step:
         # 防止多次设置同一状态导致时间被覆盖 | Prevent time from being overwritten if you set the same status multiple times
-        msg = dict(time=time.time(), thread=thread_name, step=step)
+        msg = dict(time=datetime.datetime.utcnow(), thread=thread_name, step=step)
         logger.bind(threads=True).info(msg)
+        # logger.bind(threads=True).info(traceback.print_stack(limit=3))
         thread.name = f'{thread_name}-{step}'
+        if status_queue.full():
+            status_queue.get()
         status_queue.put(msg)
+
+
+def format_step_name(step_detail:dict, offset):
+    """
+    step: dict(time=datetime.datetime.utcnow(), thread=thread_name, step=step)
+    """
+    result = {}
+    step_time = step_detail.get('time', datetime.datetime.utcnow())
+    thread_name = step_detail.get('thread', '')
+    step = step_detail.get('step', '')
+
+    result['time'] = (step_time + datetime.timedelta(hours=int(offset))).strftime('%Y-%m-%d %H:%M:%S')
+    show_step = STEPNAME_MAP.get(step, '')
+    if not show_step:  # 没有对应step的显示值，则不显示在pad上，忽略
+        return None
+
+    if thread_name.startswith('making.left'):
+        step_name = 'Left Arm ' + show_step
+    elif thread_name.startswith('making.right'):
+        step_name = 'Right Arm ' + show_step
+    elif thread_name == 'making':
+        step_name = show_step
+    else:
+        return None
+
+    result['step'] = step_name
+    return result
+
+

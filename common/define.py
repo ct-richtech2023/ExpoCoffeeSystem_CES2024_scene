@@ -268,16 +268,16 @@ class AudioConstant:
 
 class ThreadName:
     """classfication.parent_name.thread_name"""
-    left_pos_record = 'system.left_pos_record'
-    right_pos_record = 'system.right_pos_record'
-    coffee_thread = 'system.coffee_status'
-    dance_thread = 'dancing.dance'
-    follow_thread = 'dancing.follow'
-    cup_detect = 'system.cup_detect'
-    person_detect = 'system.cup_detect'
+    left_pos_record = 'system.left_pos_record'  # 左臂位置记录线程(常驻后台)，关键步骤有：create, start, pause, proceed, clear, end
+    right_pos_record = 'system.right_pos_record'  # 左臂位置记录线程(常驻后台)，关键步骤同上
+    coffee_thread = 'system.coffee_status'  # 咖啡机状态查询线程(常驻后台)， 关键步骤有：create, start, pause, proceed, end
+    dance_thread = 'dancing.dance'  # 跳舞线程(随用随关)，关键步骤有：create, start, pause, proceed, stop_thread, end
+    follow_thread = 'dancing.follow'  # 跟随线程(随用随关)，关键步骤同上
+    cup_detect = 'system.cup_detect'  # AI杯子检测线程(常驻后台)，关键步骤有：create, start, pause, proceed, end
+    person_detect = 'system.cup_detect'  # AI人数检测线程(常驻后台)，关键步骤同上
 
-    make = 'making'
-    roll = 'rolling'
+    make = 'making'  # 制作类线程(随用随关)，线程名已making开头，例如making, making.left1, making.right2, 关键步骤现在基本都是以函数名命名，分别为：start, error, END, 以及get_composition_by_option, take_coffee_machine, put_hot_cup, take_foam_cup_judge等动作函数名
+    roll = 'rolling'  # 回退类线程(随用随关)，线程共三个，分别为rolling, rolling.left和rolling.right, 关键步骤为start, end
 
 
 support_take_drinks = ['Shaken']

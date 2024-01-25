@@ -35,7 +35,7 @@ class DetectPersonThread(threading.Thread):
 
     def update_step(self, step):
         if self.steps_queue is not None:
-            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step=step)
+            update_threads_step(status_queue=self.steps_queue, thread=self, step=step)
 
     def pause(self):
         logger.info('{} is start, Detect Person Thread pause recording'.format(self.desc))

@@ -5,6 +5,7 @@ import string
 from typing import List
 
 from loguru import logger
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -188,11 +189,15 @@ def get_material(db, name=None, in_use=None, material_id=None) -> List[coffee_ta
 
 
 def get_milk_material(db, in_use=1) -> dict:
-    conditions = []
-    conditions.append(coffee_table.MaterialCurrent.type._in("Plant-based milk", "Milk"))
-    if in_use is not None:
-        conditions.append(coffee_table.MaterialCurrent.in_use == in_use)
-    materials = db.query(coffee_table.MaterialCurrent).filter(*conditions).order_by(
+    # conditions = []
+    # conditions.append(coffee_table.MaterialCurrent.type._in("Plant-based milk", "Milk"))
+    conditions = and_(
+        coffee_table.MaterialCurrent.type.in_(["Plant-based milk", "Milk"]),
+        coffee_table.MaterialCurrent.in_use == in_use if in_use is not None else True
+    )
+    # if in_use is not None:
+    #     conditions.append(coffee_table.MaterialCurrent.in_use == in_use)
+    materials = db.query(coffee_table.MaterialCurrent).filter(conditions).order_by(
         coffee_table.MaterialCurrent.id.asc()).all()
     milk_dict = {}
     for material in materials:

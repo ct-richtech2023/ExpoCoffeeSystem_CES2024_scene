@@ -81,11 +81,11 @@ def create_paid_order_from_pad(db, order: center_schema.PadOrder):
             task_uuid = '923e314f-1723-3b8c-9f23-f93903455263'
         else:
             task_uuid = uuid.uuid3(uuid.NAMESPACE_DNS, "{} {} {}".format(order.order_number, i, formula))
-        if milk := drink.milk:
-            if milk.lower() == "Plant-based milk".lower():
-                milk = "plant_milk"
-            elif milk.lower() == "Milk".lower():
-                milk = "fresh_dairy"
+        # if milk := drink.milk:
+        #     if milk.lower() == "Plant-based milk".lower():
+        #         milk = "plant_milk"
+        #     elif milk.lower() == "Milk".lower():
+        #         milk = "fresh_dairy"
         if choose_beans := drink.choose_beans:
             if choose_beans.lower() == "Medium roast coffee beans".lower():
                 choose_beans = "medium_roast"
@@ -104,7 +104,7 @@ def create_paid_order_from_pad(db, order: center_schema.PadOrder):
             'cup': format_option(drink.option.get('cup', 'Med')),
             'sweetness': int(drink.option.get('sweetness', 100)),
             'ice': format_option(drink.option.get('ice', 'light')),
-            'milk': milk,
+            'milk': drink.milk,
             'beans': choose_beans,
             'discount': drink.discount,
             'unit_money': 0,

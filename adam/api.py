@@ -4,8 +4,9 @@ from uuid import UUID, uuid4
 import traceback
 import string
 import random
+import datetime
 
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks, Query
 from loguru import logger
 from starlette.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -16,7 +17,7 @@ from common.define import Channel, AdamTaskStatus, ThreadName
 from common.myerror import MoveError
 from common.api import AudioInterface, CoffeeInterface, ASWServerInterface, VisualDetectInterface
 from common.db.crud import adam as adam_crud
-from common.utils import update_threads_step
+from common.utils import update_threads_step, format_step_name
 from devices.coffee.constant import MachineStatus
 from coffee_device import Coffee_Driver
 from common.db.database import get_db
@@ -64,9 +65,9 @@ def change_adam_status(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam = Dep
                 logger.info("++++++++++++++++++++++++++++++++++++++++++++++++++")
                 logger.info(f"duration_in_seconds  :{duration_in_seconds}")
                 AudioInterface.music(music_name)
-                if adam.task_status == AdamTaskStatus.idle:
+                if adam.task_status == AdamTaskStatus.following:
                     if not adam.follow_thread.is_alive():
-                        adam.follow_thread = FollowThread(duration_in_seconds)
+                        adam.follow_thread = FollowThread(duration_in_seconds, adam.steps_queue)
                         adam.follow_thread.name = ThreadName.follow_thread
                         adam.follow_thread.update_step('create')
                         adam.follow_thread.setDaemon(True)
@@ -83,7 +84,8 @@ def change_adam_status(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam = Dep
         return JSONResponse(status_code=510, content={'error': repr(e)})
 
 
-@router.post("/change_adam_status_idle", summary="视觉跟随开启时，adam状态改成idle", description='When visual following is turned on, the adam status changes to idle.')
+@router.post("/change_adam_status_idle", summary="视觉跟随开启时，adam状态改成idle",
+             description='When visual following is turned on, the adam status changes to idle.')
 def change_adam_status_idle(status: define.SUPPORT_ADAM_TASK_STATUS, adam: Adam = Depends(get_adam_obj)):
     """
     视觉跟随开启情况下，adam状态改成idle | When visual following is turned on, the adam status changes to idle.
@@ -210,6 +212,25 @@ def get_status(adam: Adam = Depends(get_adam_obj)):
     return result
 
 
+@router.get("/steps", summary='获取adam线程步骤', description='get steps of adam threads')
+def get_steps(time_offset=Query(default=8), adam: Adam = Depends(get_adam_obj)):
+    """step: dict(time=time.time(), thread=thread.name, step=step)"""
+    for name, thread in adam.all_threads.items():
+        if not thread.isAlive() and not thread.name.endswith('stop'):
+            # 遍历一遍线程是否存活，防止因报错导致线程退出，无法主动更新状态
+            # Traverse whether the thread is alive to prevent the thread from exiting due to an error and not being able to update the state
+            update_threads_step(status_queue=adam.steps_queue, thread=thread, step='end')
+    while not adam.steps_queue.empty():
+        step_detail = adam.steps_queue.get()
+        formatted = format_step_name(step_detail, time_offset)
+        if formatted:
+            if len(adam.step_cache) >= 50:
+                adam.step_cache.pop(0)
+            adam.step_cache.append(formatted)
+
+    return adam.step_cache
+
+
 @router.get("/composition", summary='通过选项获取配方', description='get composition by option')
 def get_composition(formula: str, sweetness: int = 0,
                     ice: define.SUPPORT_ICE_TYPE = define.IceType.no_ice, milk: Literal['Plant-based milk', 'Milk'] = define.MilkType.plant_based,
@@ -332,9 +353,9 @@ def roll(adam: Adam = Depends(get_adam_obj)):
 @router.post("/clean_milk_pipe", summary='清洗奶管', description='clean milk pipe')
 def clean_milk_pipe(materials: list, adam: Adam = Depends(get_adam_obj)):
     try:
-        if adam.task_status == AdamTaskStatus.idle:
-            logger.info(materials)
-            adam.clean_milk_pipe(materials)
+        # if adam.task_status == AdamTaskStatus.idle:
+        logger.info(materials)
+        adam.clean_milk_pipe(materials)
         return 'ok'
     except MoveError as e:
         return JSONResponse(status_code=510, content={'error': str(e)})
@@ -356,6 +377,7 @@ def make_cold_drink(coffee_record: coffee_schema.CoffeeRecord, adam: Adam = Depe
         adam.make_cold_drink(coffee_record)
         return 'ok'
     except Exception as e:
+        logger.error(traceback.format_exc())
         return JSONResponse(status_code=510, content={'error': repr(e)})
 
 
@@ -366,6 +388,7 @@ def make_hot_drink(coffee_record: coffee_schema.CoffeeRecord, adam: Adam = Depen
         adam.make_hot_drink(coffee_record)
         return 'ok'
     except Exception as e:
+        logger.error(traceback.format_exc())
         return JSONResponse(status_code=510, content={'error': repr(e)})
 
 
@@ -491,10 +514,19 @@ async def open_tap(name: str, action: Literal['0', '1'], adam: Adam = Depends(ge
         return JSONResponse(status_code=400, content={'error': 'Adam is busy now, status is {}'.format(adam.task_status)})
 
 
+@router.post("/close_all_taps", summary='关闭所有龙头', description='Turn off all taps')
+async def close_all_taps(adam: Adam = Depends(get_adam_obj)):
+    com = adam.ser.new_communication()
+    adam.ser.send_one_msg(com, 'i')
+    com.close_engine()
+    adam_crud.init_tap()
+    return adam_crud.get_all_status()
+
+
 @router.post("/clean_the_brewer", summary='咖啡机自动清洗', description='Coffee machine automatic cleaning')
 def clean_the_brewer(adam: Adam = Depends(get_adam_obj)):
     if status_dict := adam.coffee_driver.query_status():
-        if status_dict.get("status_code", "") == 255 and status_dict.get("status_code", []) == []:
+        if status_dict.get("status_code", "") == 255 and status_dict.get("error", []) == []:
             for i in range(1, 7):
                 if i != 5:
                     is_clean_close = False
@@ -579,7 +611,8 @@ def update_dance(dance_list: List, db: Session = Depends(get_db)):
         return JSONResponse(status_code=510, content={'error': str(e)})
 
 
-@router.post("/update_single_dance", summary='更新当前跳舞数据，指定正在播放', description='Update the current dance data and specify that it is currently playing')
+@router.post("/update_single_dance", summary='更新当前跳舞数据，指定正在播放',
+             description='Update the current dance data and specify that it is currently playing')
 def update_single_dance(dance_num: int, now_playing: int, db: Session = Depends(get_db)):
     try:
         logger.info('update single dance')
@@ -631,7 +664,10 @@ def proceed_dance(adam: Adam = Depends(get_adam_obj)):
 def stop_dance(adam: Adam = Depends(get_adam_obj)):
     try:
         if adam.task_status == AdamTaskStatus.dancing:
-            adam.dance_thread.stop_thread()
+            if adam.dance_thread.is_alive():
+                adam.dance_thread.stop_thread()
+            else:
+                adam.stop_and_goto_zero(idle=True)
     except Exception as e:
         return JSONResponse(status_code=510, content={'error': str(e)})
 

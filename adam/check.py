@@ -15,11 +15,11 @@ class CheckThread(Thread):
         self.run_flag = True
         self.name = thread_name
         self.steps_queue = steps_queue
-        self.update_step('create')
+        # self.update_step('create')
 
     def update_step(self, step):
         if self.steps_queue is not None:
-            update_threads_step(status_queue=self.steps_queue, thread=threading.current_thread(), step=step)
+            update_threads_step(status_queue=self.steps_queue, thread=self, step=step)
 
     def stop(self):
         self.run_flag = False

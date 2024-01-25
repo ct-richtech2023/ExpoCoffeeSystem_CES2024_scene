@@ -442,9 +442,8 @@ class AdamInterface:
 
     @classmethod
     def make_cold_drink(cls, coffee_record):
-        params = {"coffee_record": coffee_record}
         url = "{}/adam/make_cold_drink".format(cls.base_url)
-        res = requests.post(url, params=params)
+        res = requests.post(url, json=coffee_record)
         logger.info('url={}, result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             msg = res.content if res.content else ''
@@ -452,9 +451,8 @@ class AdamInterface:
 
     @classmethod
     def make_hot_drink(cls, coffee_record):
-        params = {"coffee_record": coffee_record}
         url = "{}/adam/make_hot_drink".format(cls.base_url)
-        res = requests.post(url, params=params)
+        res = requests.post(url, json=coffee_record)
         logger.info('url={}, result={}'.format(url, res.json()))
         if res.status_code and res.status_code != 200:
             msg = res.content if res.content else ''
