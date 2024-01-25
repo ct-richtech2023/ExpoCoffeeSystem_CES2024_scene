@@ -12,6 +12,7 @@ from common.api import AudioInterface
 from common.db.crud import adam as adam_crud
 from common.db.database import MySuperContextManager
 from business import Adam
+from common.myerror import MoveError
 
 
 def dance_random(adam: Adam, choice):
@@ -1911,6 +1912,8 @@ def dance_random(adam: Adam, choice):
                 logger.info('run dance13 Worth_It.mp3')
                 dance13()
             adam.goto_standby_pose()
+        except MoveError as me:
+            pass
         except Exception as e:
             logger.error('random dance have a error is {}'.format(str(e)))
             logger.error(traceback.format_exc())
