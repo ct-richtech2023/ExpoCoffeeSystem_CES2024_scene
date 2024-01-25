@@ -21,9 +21,7 @@ def module_base_url(module):
 
 
 class VisualDetectInterface:
-    base_url = 'http://192.168.2.55:5002'
-
-    # base_url = 'http://192.168.0.55:5002'  # scene url
+    base_url = f"http://{get_machine_config().get('jetson_ip', {})}:5002"
 
     @classmethod
     def start_following(cls):
