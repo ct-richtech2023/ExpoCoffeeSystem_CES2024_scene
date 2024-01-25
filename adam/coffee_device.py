@@ -169,10 +169,13 @@ class Coffee_Driver:
                 status_dict["status_code"] = status
                 status_dict["status"] = "Clearing fault reset"
         if errors:
-            errors_code_list = [item for item in errors if item != 0]
-            status_dict["error_code"] = errors_code_list
+            error_code_list = list()
+            for error_code in errors:
+                if self.machine_states_error_dict.get(error_code, ""):
+                    error_code_list.append(error_code)
+            status_dict["error_code"] = error_code_list
             error_list = list()
-            for error in errors_code_list:
+            for error in error_code_list:
                 error_list.append(self.machine_states_error_dict.get(error, "unknow"))
             status_dict["error"] = error_list
 
@@ -258,24 +261,25 @@ class Coffee_Driver:
         等待制作完成
         """
         start_time = time.time()
-        logger.info("into wait_until_completed")
+        logger.info("into wait_until_idle")
         while True and not self.stop_event.is_set():
             status_dict = self.query_status()
             status_code = status_dict.get('status_code')
             status = status_dict.get('status')
             error_code = set(status_dict.get('error_code', []))
+            # copy_error_code = deepcopy(error_code)
             error = status_dict.get('error', [])
             if error:
                 # 制作过程中有报错信息，立刻抛出异常
                 logger.error(error)
-                process_error_list = {0, 15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 75}
+                process_error_list = {15, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 30, 75}
                 if error_code - process_error_list:
                     self.stop_event.set()
                     raise CoffeeError(f'Failed to make coffee. The coffee machine error is {error}')
             # 制作过程中，如果状态是255 且无error就退出循环，否则一直等待,27,28为豆仓缺豆
-            if status_code == 255 and not error_code - {0, 27, 28}:
+            if status_code == 255 and not error_code - {27, 28}:
                 if check:
-                    if error_code == {0}:
+                    if not error_code:
                         break
                 else:
                     logger.debug('no making status in {}'.format(status))
