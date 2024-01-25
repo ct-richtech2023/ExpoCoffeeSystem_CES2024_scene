@@ -1,14 +1,14 @@
 # if indoor: use glass cup; if outdoor: use disposable cup
 cup_env: indoor
 
-jetson_ip: 192.168.0.55
+jetson_ip: 192.168.2.55
 
 adam:
-  sn: RRADAMD2202507010020  # abcdef   # RRADAMD2202207010014
+  sn: abcdef  #RRADAMD2202507010020  # abcdef   # RRADAMD2202207010014
   square_token: EAAAEeADGuJrbl2y80hYMxJKOrla181hLmf5SBYY2CyfcVZyNtDJ-eOVbZk2XPQt
   ip:
-    left: 192.168.0.232  #192.168.0.241
-    right: 192.168.0.231  #192.168.0.242
+    left: 192.168.2.226  #192.168.0.241
+    right: 192.168.2.240  #192.168.0.242
   default_speed:
     arm: 400
     gripper: 15000
@@ -17,8 +17,8 @@ adam:
   arduino:
     no1: '/dev/ttyACM0'
     no2: '/dev/ttyACM1'
-  coffee_device: '/dev/ttyS3'
-  tap_device: '/dev/ttyS0'
+  coffee_device: '/dev/ttyS0'
+  tap_device: '/dev/ttyUSB0'
 
 audio:
   lat: 32
